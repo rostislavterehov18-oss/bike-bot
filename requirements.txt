@@ -1,3 +1,0 @@
-python-telegtam-bot==22.7
-requests
-playwright 
