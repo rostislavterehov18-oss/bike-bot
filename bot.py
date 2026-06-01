@@ -5,9 +5,9 @@ import time
 import json
 import os
 
-# =========================
+# ======================
 # CONFIG
-# =========================
+# ======================
 
 TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 CHANNEL_ID = "@swiss_bike"
@@ -17,124 +17,54 @@ app = Flask(__name__)
 
 seen = set()
 
-DB_FILE = "price_db.json"
-daily_deals = []
-
 HEADERS = {
-    "User-Agent": "Mozilla/5.0"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
-# =========================
-# LOAD PRICE DB
-# =========================
-
-def load_db():
-    if not os.path.exists(DB_FILE):
-        return []
-    try:
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return []
-
-price_db = load_db()
-
-def save_db():
-    with open(DB_FILE, "w") as f:
-        json.dump(price_db[-3000:], f)
-
-# =========================
+# ======================
 # TELEGRAM
-# =========================
+# ======================
 
 def send(text):
     try:
-        r = requests.post(API_URL + "/sendMessage", json={
-            "chat_id": CHANNEL_ID,
-            "text": text,
-            "disable_web_page_preview": True
-        }, timeout=15)
-
+        r = requests.post(
+            API_URL + "/sendMessage",
+            json={
+                "chat_id": CHANNEL_ID,
+                "text": text,
+                "disable_web_page_preview": True
+            },
+            timeout=15
+        )
         print("SEND:", r.text)
 
     except Exception as e:
         print("SEND ERROR:", e)
 
-# =========================
-# SMART PRICE MODEL (AI-LIKE)
-# =========================
+# ======================
+# SMART PRICE FILTER
+# ======================
 
-def market_price(keyword):
-    prices = [
-        x["price"] for x in price_db
-        if keyword in x["title"]
-    ]
-
-    if len(prices) < 5:
-        return None
-
-    prices.sort()
-    return prices[len(prices)//2]  # median
-
-def deal_score(price, market):
-    if not market:
-        return 50
-
-    ratio = price / market
-
-    if ratio < 0.5:
-        return 95
-    if ratio < 0.7:
-        return 80
-    if ratio < 0.9:
-        return 65
-    return 40
-
-# =========================
-# FILTERS
-# =========================
-
-def is_free_or_broken(text):
-    t = text.lower()
-
-    free_words = [
-        "gratis", "free", "kostenlos",
-        "zu verschenken", "giveaway", "for free"
-    ]
-
-    broken_words = [
-        "defekt", "kaputt", "not working",
-        "for parts", "broken", "repair"
-    ]
-
-    return any(w in t for w in free_words + broken_words)
-
-# =========================
-# SAVE MARKET DATA
-# =========================
-
-def update_db(title, price):
+def is_good(title, price):
     if price is None:
-        return
+        return False
 
-    price_db.append({
-        "title": title,
-        "price": price,
-        "time": time.time()
-    })
+    title = title.lower()
 
-    save_db()
+    if "garmin" in title and price <= 50:
+        return True
 
-# =========================
-# DEAL TRACKER
-# =========================
+    if ("bike" in title or "velo" in title) and price <= 400:
+        return True
 
-def add_deal(item):
-    daily_deals.append(item)
+    if "macbook" in title and price <= 1500:
+        return True
 
-# =========================
-# RICARDO (SIMPLIFIED)
-# =========================
+    return False
+
+# ======================
+# RICARDO (STABLE API)
+# ======================
 
 def search_ricardo():
     try:
@@ -153,114 +83,116 @@ def search_ricardo():
             price = i.get("price")
             link = i.get("url")
 
-            if not link or link in seen:
+            if not link:
+                continue
+
+            if link in seen:
                 continue
 
             seen.add(link)
 
-            update_db(title, price)
-
-            market = market_price("bike" if "bike" in title else "garmin")
-            score = deal_score(price or 999, market)
-
-            text = f"{title}\n{price} CHF\nscore: {score}\n{link}"
-
-            # FREE / BROKEN
-            if is_free_or_broken(title):
-                send("🔥 FREE/BROKEN DEAL\n" + text)
-                add_deal(text)
-                continue
-
-            # GARMIN
-            if "garmin" in title and price and price <= 50:
-                send("🛰 GARMIN DEAL\n" + text)
-                add_deal(text)
-
-            # BIKE
-            elif "bike" in title or "velo" in title:
-                if price and price <= 400 and score >= 70:
-                    send("🚲 BIKE DEAL\n" + text)
-                    add_deal(text)
-
-            # MACBOOK
-            elif "macbook" in title:
-                if score >= 70:
-                    send("💻 MACBOOK DEAL\n" + text)
-                    add_deal(text)
+            if is_good(title, price):
+                send(f"🔥 RICARDO DEAL\n{title}\n{price} CHF\n{link}")
 
     except Exception as e:
         print("RICARDO ERROR:", e)
 
-# =========================
-# TUTTI (BASIC SCRAPER SAFE)
-# =========================
+# ======================
+# TUTTI SMART RETRY SYSTEM
+# ======================
+
+tutti_fail_count = 0
+tutti_cooldown = 0
 
 def search_tutti():
-    try:
-        r = requests.get(
-            "https://www.tutti.ch/de/li/q/garmin-bike-macbook",
-            headers=HEADERS,
-            timeout=20
-        )
+    global tutti_fail_count, tutti_cooldown
 
-        text = r.text.lower()
-
-        if "garmin" in text and "bike" in text:
-            print("TUTTI PAGE OK")
-
-    except Exception as e:
-        print("TUTTI ERROR:", e)
-
-# =========================
-# DAILY BEST DEALS
-# =========================
-
-def send_daily_deals():
-    if not daily_deals:
-        send("📉 Сегодня выгодных сделок не найдено")
+    if time.time() < tutti_cooldown:
+        print("TUTTI COOLING DOWN...")
         return
 
-    sorted_deals = sorted(daily_deals, key=lambda x: len(x))[:3]
+    url = "https://www.tutti.ch/de/li/q/garmin-bike-macbook"
 
-    msg = "🔥 TOP DEALS OF THE DAY\n\n" + "\n\n".join(sorted_deals)
+    for attempt in range(3):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=15)
 
-    send(msg)
+            # BLOCKED OR ERROR
+            if r.status_code in [403, 429, 503]:
+                print(f"TUTTI BLOCKED {r.status_code}")
+                raise Exception("blocked")
 
-# =========================
-# MONITOR
-# =========================
+            html = r.text.lower()
+
+            if "garmin" in html or "bike" in html:
+                print("TUTTI OK")
+
+            else:
+                print("TUTTI EMPTY RESPONSE")
+
+            tutti_fail_count = 0
+            return html
+
+        except Exception as e:
+            print(f"TUTTI FAIL attempt {attempt+1}", e)
+            time.sleep(5 * (attempt + 1))
+
+    # ======================
+    # FAILURE MODE
+    # ======================
+
+    tutti_fail_count += 1
+    print("TUTTI DOWN COUNT:", tutti_fail_count)
+
+    # cooldown system
+    if tutti_fail_count >= 3:
+        tutti_cooldown = time.time() + 600  # 10 min pause
+        send("⚠️ Tutti временно недоступен, переключаюсь на Ricardo")
+
+    return None
+
+# ======================
+# MONITOR LOOP
+# ======================
 
 def monitor():
-    print("MONITOR STARTED")
-    send("🟢 Smart Deal Bot started")
+    print("🚀 BOT V5 STARTED")
 
-    last_day = time.time()
+    send("🟢 Bot V5 started\nSmart monitoring active")
+
+    last_alive = 0
 
     while True:
-        search_ricardo()
-        search_tutti()
+        try:
+            print("🔍 SEARCH CYCLE START")
 
-        # daily report
-        if time.time() - last_day > 86400:
-            send_daily_deals()
-            daily_deals.clear()
-            last_day = time.time()
+            search_ricardo()
+            search_tutti()
+
+            # heartbeat
+            if time.time() - last_alive > 3600:
+                send("💚 Bot alive (V5 Smart Mode)")
+                last_alive = time.time()
+
+            print("🔍 SEARCH CYCLE END")
+
+        except Exception as e:
+            print("MONITOR ERROR:", e)
 
         time.sleep(1800)
 
-# =========================
-# FLASK
-# =========================
+# ======================
+# FLASK (RENDER)
+# ======================
 
 @app.route("/")
 def home():
-    return "bot running"
+    return "Bot V5 running"
 
-# =========================
+# ======================
 # START
-# =========================
+# ======================
 
 if __name__ == "__main__":
-    print("BOT STARTING")
     threading.Thread(target=monitor, daemon=True).start()
     app.run(host="0.0.0.0", port=10000)
