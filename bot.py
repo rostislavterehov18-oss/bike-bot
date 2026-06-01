@@ -12,25 +12,37 @@ def find_item():
     url = "https://www.tutti.ch/api/v10/search"
 
     params = {
-        "query": "Garmin GPS navigator navigation",
+        "query": "Garmin GPS",
         "priceTo": 50,
-        "limit": 1
+        "limit": 5
+    }
+
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
     }
 
     try:
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(url, params=params, headers=headers, timeout=15)
+
+        # защита от HTML вместо JSON
+        if "application/json" not in r.headers.get("Content-Type", ""):
+            return "❌ API блокирует запрос"
+
         data = r.json()
 
-        for item in data.get("items", []):
-            title = item.get("title", "no title")
-            link = "https://www.tutti.ch" + item.get("url", "")
-            return f"🛰 Garmin GPS\n{title}\n{link}"
+        items = data.get("items", [])
+        if not items:
+            return "❌ ничего не найдено"
 
-        return "❌ Нет товаров до 50 CHF"
+        item = items[0]
+        title = item.get("title", "no title")
+        link = "https://www.tutti.ch" + item.get("url", "")
 
-    except:
-        return "❌ Ошибка поиска"
+        return f"🛰 Garmin GPS\n{title}\n{link}"
 
+    except Exception as e:
+        return f"❌ ошибка: {str(e)}"
 
 # -----------------------
 def send_message(chat_id, text):
