@@ -1,10 +1,11 @@
-```python
 from flask import Flask
 import requests
 import threading
 import time
-import json
-import os
+
+# =========================
+# CONFIG
+# =========================
 
 TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 CHANNEL_ID = "@swiss_bike"
@@ -14,27 +15,10 @@ API_URL = f"https://api.telegram.org/bot{TOKEN}"
 app = Flask(__name__)
 
 seen = set()
-DB_FILE = "price_db.json"
 
-
-def load_db():
-    if not os.path.exists(DB_FILE):
-        return []
-
-    try:
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return []
-
-
-def save_db(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data[-2000:], f)
-
-
-price_db = load_db()
-
+# =========================
+# TELEGRAM SEND
+# =========================
 
 def send(text):
     try:
@@ -53,86 +37,84 @@ def send(text):
     except Exception as e:
         print("SEND ERROR:", e)
 
+# =========================
+# SIMPLE PRICE CHECK
+# =========================
 
-def update_market(title, price):
+def is_good_price(category, price):
     if price is None:
-        return
+        return False
 
-    price_db.append({
-        "title": title,
-        "price": price,
-        "time": time.time()
-    })
+    if category == "garmin":
+        return price <= 50
 
-    save_db(price_db)
+    if category == "bike":
+        return price <= 400
 
+    if category == "macbook":
+        return price <= 1200
 
-def score(price_value):
-    if price_value <= 50:
-        return 95
+    return False
 
-    if price_value <= 100:
-        return 80
-
-    return 50
-
+# =========================
+# FAKE SEARCH PLACEHOLDERS
+# (сюда позже подключим реальные источники)
+# =========================
 
 def search_ricardo():
-    print("RICARDO SEARCH")
-
-    # сюда потом можно добавить реальный поиск
+    print("RICARDO CHECK")
     return []
 
 
 def search_tutti():
-    print("TUTTI SEARCH")
-
-    # сюда потом можно добавить реальный поиск
+    print("TUTTI CHECK")
     return []
 
+# =========================
+# MONITOR LOOP
+# =========================
 
 def monitor():
-    print("MONITOR STARTED")
+    print("🟢 MONITOR STARTED")
 
-    send("🟢 Бот запущен")
+    send("🟢 Бот запущен\nМониторинг: Garmin + Bikes + MacBook")
 
     last_alive = 0
 
     while True:
-
         try:
-            print("SEARCH START")
+            print("🔍 SEARCH START")
 
             search_ricardo()
             search_tutti()
 
+            # heartbeat
             if time.time() - last_alive > 3600:
-                send("💚 Бот работает. Новых объявлений пока нет.")
+                send("💚 Бот работает. Монитор активен.")
                 last_alive = time.time()
 
-            print("SEARCH END")
+            print("🔍 SEARCH END")
 
         except Exception as e:
             print("MONITOR ERROR:", e)
 
         time.sleep(1800)
 
+# =========================
+# FLASK SERVER (Render requirement)
+# =========================
 
 @app.route("/")
 def home():
     return "bot running"
 
+# =========================
+# START
+# =========================
 
 if __name__ == "__main__":
-    print("BOT STARTING")
+    print("🚀 BOT STARTING")
 
-    threading.Thread(
-        target=monitor,
-        daemon=True
-    ).start()
+    threading.Thread(target=monitor, daemon=True).start()
 
-    app.run(
-        host="0.0.0.0",
-        port=10000
-    )
-```
+    app.run(host="0.0.0.0", port=10000)
