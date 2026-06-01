@@ -13,42 +13,35 @@ seen = set()
 
 
 # ----------------------------
-# TELEGRAM SEND
-# ----------------------------
 def send_message(chat_id, text):
     try:
-        requests.post(
-            API_URL + "/sendMessage",
-            json={"chat_id": chat_id, "text": text},
-            timeout=10
-        )
+        requests.post(API_URL + "/sendMessage", json={
+            "chat_id": chat_id,
+            "text": text
+        }, timeout=10)
     except:
         pass
 
 
 # ----------------------------
-# SEARCH GARMIN (SAFE)
+# 🔵 SOURCE 1: RICARDO (ВСЯ ШВЕЙЦАРИЯ)
 # ----------------------------
-def search_items():
-    url = "https://www.ricardo.ch/de/c/gps-navigation/"
+def search_ricardo():
+    url = "https://www.ricardo.ch/de/c/navigationssysteme/"
 
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
+    headers = {"User-Agent": "Mozilla/5.0"}
 
     try:
         r = requests.get(url, headers=headers, timeout=15)
-
         if not r.text:
             return []
 
         results = []
-
         parts = r.text.split('href="')
 
-        for part in parts:
-            if "/de/a/" in part:
-                link = part.split('"')[0]
+        for p in parts:
+            if "/de/a/" in p:
+                link = p.split('"')[0]
 
                 if not link.startswith("http"):
                     link = "https://www.ricardo.ch" + link
@@ -57,8 +50,7 @@ def search_items():
                     continue
 
                 seen.add(link)
-
-                results.append(f"🛰 Garmin / GPS\n{link}")
+                results.append("🛰 Ricardo GPS\n" + link)
 
                 if len(results) >= 3:
                     break
@@ -70,25 +62,73 @@ def search_items():
 
 
 # ----------------------------
-# MONITOR LOOP
+# 🟠 SOURCE 2: TUTTI (ВСЯ ШВЕЙЦАРИЯ)
+# ----------------------------
+def search_tutti():
+    url = "https://www.tutti.ch/de/li/ganze-schweiz/fahrzeuge/navigationssysteme"
+
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        if not r.text:
+            return []
+
+        results = []
+        parts = r.text.split('href="')
+
+        for p in parts:
+            if "/de/vi/" in p:
+                link = p.split('"')[0]
+
+                if not link.startswith("http"):
+                    link = "https://www.tutti.ch" + link
+
+                if link in seen:
+                    continue
+
+                seen.add(link)
+                results.append("🛰 Tutti GPS\n" + link)
+
+                if len(results) >= 3:
+                    break
+
+        return results
+
+    except:
+        return []
+
+
+# ----------------------------
+# 🔁 ОБЩИЙ ПОИСК
+# ----------------------------
+def search_all():
+    results = []
+
+    results += search_ricardo()
+    results += search_tutti()
+
+    return results
+
+
+# ----------------------------
+# MONITOR
 # ----------------------------
 def monitor():
     while True:
         try:
             if CHAT_ID:
-                items = search_items()
+                items = search_all()
 
-                for item in items:
-                    send_message(CHAT_ID, item)
+                for i in items:
+                    send_message(CHAT_ID, i)
 
-            time.sleep(600)  # 10 min
+            time.sleep(600)
 
         except:
             time.sleep(60)
 
 
-# ----------------------------
-# WEBHOOK ROUTE
 # ----------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -106,31 +146,28 @@ def webhook():
         CHAT_ID = chat_id
 
         if text == "/start":
-            send_message(chat_id, "🛰 Бот запущен\nПоиск: Garmin GPS до 50 CHF")
+            send_message(chat_id, "🛰 Монитор Швейцарии запущен\nRicardo + Tutti")
 
         elif text == "/check":
-            items = search_items()
+            items = search_all()
+
             if items:
                 send_message(chat_id, "\n\n".join(items))
             else:
-                send_message(chat_id, "❌ ничего не найдено")
+                send_message(chat_id, "❌ ничего не найдено по Швейцарии")
 
     return "ok"
 
 
 # ----------------------------
-# HOME ROUTE
-# ----------------------------
 @app.route("/", methods=["GET"])
 def home():
-    return "Bot is running"
+    return "Swiss bot running"
 
 
-# ----------------------------
-# START
 # ----------------------------
 if __name__ == "__main__":
-    thread = threading.Thread(target=monitor, daemon=True)
-    thread.start()
+    t = threading.Thread(target=monitor, daemon=True)
+    t.start()
 
     app.run(host="0.0.0.0", port=10000)
