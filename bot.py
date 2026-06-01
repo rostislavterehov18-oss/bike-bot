@@ -3,10 +3,7 @@ import threading
 import requests
 import time
 import os
-
-# ======================
-# CONFIG
-# ======================
+import traceback
 
 TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 CHANNEL_ID = "@swiss_bike"
@@ -14,92 +11,48 @@ API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 app = Flask(__name__)
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
-
-seen = set()
-
 # ======================
 # TELEGRAM
 # ======================
 
 def send(text):
     try:
-        requests.post(
+        r = requests.post(
             API_URL + "/sendMessage",
-            json={
-                "chat_id": CHANNEL_ID,
-                "text": text,
-                "disable_web_page_preview": True
-            },
+            json={"chat_id": CHANNEL_ID, "text": text},
             timeout=10
         )
-        print("SEND:", text)
-
+        print("SEND RESPONSE:", r.text)
     except Exception as e:
         print("SEND ERROR:", e)
 
 # ======================
-# SAFE RICARDO CHECK
+# SAFE TEST REQUEST
 # ======================
 
-def ricardo_check():
+def test_requests():
     try:
-        print("RICARDO CHECK...")
+        print("TEST REQUEST START")
 
-        r = requests.get(
-            "https://www.ricardo.ch/de/c/all?query=bike",
-            headers=HEADERS,
-            timeout=15
-        )
+        r = requests.get("https://www.ricardo.ch", timeout=10)
 
-        if r.status_code != 200:
-            print("RICARDO STATUS:", r.status_code)
-            return
+        print("RICARDO STATUS:", r.status_code)
 
-        if "html" not in r.text.lower():
-            print("RICARDO EMPTY RESPONSE")
-            return
+        r2 = requests.get("https://www.tutti.ch", timeout=10)
 
-        send("📡 Ricardo scan OK")
+        print("TUTTI STATUS:", r2.status_code)
 
     except Exception as e:
-        print("RICARDO ERROR:", e)
+        print("REQUEST ERROR:")
+        traceback.print_exc()
 
 # ======================
-# SAFE TUTTI CHECK
-# ======================
-
-def tutti_check():
-    try:
-        print("TUTTI CHECK...")
-
-        r = requests.get(
-            "https://www.tutti.ch/de/li/q/bike",
-            headers=HEADERS,
-            timeout=15
-        )
-
-        print("TUTTI STATUS:", r.status_code)
-
-        if r.status_code == 403:
-            print("TUTTI BLOCKED")
-            return
-
-        send("📡 Tutti scan OK")
-
-    except Exception as e:
-        print("TUTTI ERROR:", e)
-
-# ======================
-# BOT LOOP (WORKER)
+# LOOP (FULL DEBUG)
 # ======================
 
 def bot_loop():
     print("BOT LOOP STARTED")
-
-    send("🟢 BOT ONLINE v12")
+    send("🟢 BOT DEBUG v14 STARTED")
 
     counter = 0
 
@@ -107,31 +60,25 @@ def bot_loop():
         try:
             counter += 1
 
-            print("LOOP:", counter)
+            print(f"\n===== LOOP {counter} =====")
 
-            ricardo_check()
-            tutti_check()
+            test_requests()
 
-            # heartbeat
-            if counter % 10 == 0:
-                send("💚 Bot alive heartbeat")
+            send(f"💚 LOOP OK #{counter}")
 
         except Exception as e:
-            print("LOOP ERROR:", e)
+            print("LOOP ERROR:")
+            traceback.print_exc()
 
         time.sleep(60)
 
 # ======================
-# FLASK ROUTES (REQUIRED FOR RENDER)
+# FLASK
 # ======================
 
 @app.route("/")
 def home():
     return "bot alive"
-
-@app.route("/health")
-def health():
-    return "ok"
 
 # ======================
 # START
@@ -141,12 +88,8 @@ if __name__ == "__main__":
 
     print("STARTING APP")
 
-    # start bot in background
-    thread = threading.Thread(target=bot_loop)
-    thread.daemon = True
-    thread.start()
+    t = threading.Thread(target=bot_loop, daemon=True)
+    t.start()
 
-    # IMPORTANT: keep port open for Render
     port = int(os.environ.get("PORT", 10000))
-
     app.run(host="0.0.0.0", port=port)
