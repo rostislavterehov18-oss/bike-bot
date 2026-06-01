@@ -2,15 +2,38 @@ from flask import Flask, request
 import requests
 import threading
 import time
+import json
+import os
 
-TOKEN = "В8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
+TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
-
 CHANNEL_ID = "@swiss_bike"
 
 app = Flask(__name__)
 
 seen = set()
+DB_FILE = "price_db.json"
+
+
+# ----------------------------
+# 📦 загрузка базы цен
+# ----------------------------
+def load_db():
+    if not os.path.exists(DB_FILE):
+        return []
+    try:
+        with open(DB_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return []
+
+
+def save_db(db):
+    with open(DB_FILE, "w") as f:
+        json.dump(db[-2000:], f)  # ограничение размера
+
+
+price_db = load_db()
 
 
 # ----------------------------
@@ -37,49 +60,65 @@ def price(p):
 
 
 # ----------------------------
-# 🧠 РЫНОЧНАЯ ОЦЕНКА (упрощённая)
+# 🧠 ОБУЧЕНИЕ РЫНКА (простая статистика)
 # ----------------------------
-def market_value(title):
+def update_market(title, p):
+    global price_db
+
+    if p is None:
+        return
+
+    price_db.append({
+        "title": title.lower(),
+        "price": p,
+        "time": time.time()
+    })
+
+    save_db(price_db)
+
+
+# ----------------------------
+def get_market_price(title):
     t = title.lower()
 
-    if "macbook pro" in t:
-        return 1200
-    if "macbook air" in t:
-        return 900
-    if "garmin" in t:
-        return 120
-    if any(x in t for x in ["bike", "velo", "fahrrad"]):
-        return 600
+    matches = [
+        x["price"] for x in price_db
+        if any(w in x["title"] for w in t.split())
+    ]
 
-    return 300
+    if len(matches) < 3:
+        return None  # недостаточно данных
+
+    return sum(matches) / len(matches)
 
 
 # ----------------------------
 def score(title, price_val):
+    market = get_market_price(title)
+
+    if market is None:
+        # fallback
+        market = price_val * 1.3 if price_val else 500
+
     if price_val is None:
         return 40
 
-    market = market_value(title)
-
     ratio = price_val / market
 
-    if ratio < 0.4:
+    if ratio < 0.5:
         return 95
-    if ratio < 0.6:
+    if ratio < 0.7:
         return 80
-    if ratio < 0.8:
+    if ratio < 0.9:
         return 65
     return 40
 
 
 # ----------------------------
 def is_good(title, price_val):
-    s = score(title, price_val)
-    return s >= 75
+    return score(title, price_val) >= 75
 
 
-# ----------------------------
-# 🛰 RICARDO
 # ----------------------------
 def search_ricardo():
     try:
@@ -93,8 +132,6 @@ def search_ricardo():
         data = r.json()
         items = data.get("items", [])
 
-        results = []
-
         for i in items:
             title = (i.get("title") or "").lower()
             link = i.get("url") or ""
@@ -106,34 +143,32 @@ def search_ricardo():
             if link in seen:
                 continue
 
+            update_market(title, p)
+
             # 🛰 GARMIN
             if "garmin" in title and p and p <= 50:
                 seen.add(link)
-                send(f"🛰 GARMIN\n{title}\n{p} CHF\n{link}")
-                continue
+                send(f"🛰 GARMIN\n{title}\n{p} CHF\n🔥 score {score(title,p)}\n{link}")
 
             # 🚲 BIKE
-            if any(x in title for x in ["bike", "velo", "fahrrad"]) and p and p <= 400:
+            elif any(x in title for x in ["bike", "velo"]) and p and p <= 400:
                 if is_good(title, p):
                     seen.add(link)
-                    send(f"🚲 BIKE DEAL\n{title}\n{p} CHF (🔥 {score(title,p)}/100)\n{link}")
-                continue
+                    send(f"🚲 BIKE\n{title}\n{p} CHF\n🔥 score {score(title,p)}\n{link}")
 
-            # 💻 MACBOOK
-            if "macbook" in title and p and p <= 2000:
+            # 💻 MACBOOK (2019+ логика)
+            elif "macbook" in title and p and p <= 2500:
                 if is_good(title, p):
                     seen.add(link)
-                    send(f"💻 APPLE DEAL\n{title}\n{p} CHF (🔥 {score(title,p)}/100)\n{link}")
-                continue
+                    send(f"💻 APPLE\n{title}\n{p} CHF\n🔥 score {score(title,p)}\n{link}")
 
         return []
 
-    except:
+    except Exception as e:
+        print("RICARDO ERROR:", e)
         return []
 
 
-# ----------------------------
-# 🟡 TUTTI
 # ----------------------------
 def search_tutti():
     try:
@@ -150,8 +185,6 @@ def search_tutti():
         data = r.json()
         items = data.get("items", [])
 
-        results = []
-
         for i in items:
             title = (i.get("title") or "").lower()
             link = i.get("url") or ""
@@ -163,32 +196,27 @@ def search_tutti():
             if link in seen:
                 continue
 
+            update_market(title, p)
+
             if "garmin" in title and p and p <= 50:
                 seen.add(link)
-                send(f"🛰 GARMIN\n{title}\n{p} CHF\n{link}")
+                send(f"🛰 GARMIN\n{title}\n{p} CHF\n🔥 score {score(title,p)}\n{link}")
 
             elif any(x in title for x in ["bike", "velo"]) and p and p <= 400:
                 if is_good(title, p):
                     seen.add(link)
-                    send(f"🚲 BIKE\n{title}\n{p} CHF\n{link}")
+                    send(f"🚲 BIKE\n{title}\n{p} CHF\n🔥 score {score(title,p)}\n{link}")
 
-            elif "macbook" in title and p:
+            elif "macbook" in title:
                 if is_good(title, p):
                     seen.add(link)
-                    send(f"💻 APPLE MACBOOK\n{title}\n{p} CHF\n{link}")
+                    send(f"💻 MACBOOK\n{title}\n{p} CHF\n🔥 score {score(title,p)}\n{link}")
 
         return []
 
-    except:
+    except Exception as e:
+        print("TUTTI ERROR:", e)
         return []
-
-
-# ----------------------------
-# 📘 FACEBOOK (ОПЦИОНАЛЬНО)
-# ----------------------------
-def search_facebook():
-    # ⚠️ реальный парсинг нестабилен
-    return []
 
 
 # ----------------------------
@@ -196,14 +224,13 @@ def monitor():
     while True:
         search_ricardo()
         search_tutti()
-        search_facebook()
-        time.sleep(1800)  # 30 минут
+        time.sleep(1800)
 
 
 # ----------------------------
 @app.route("/", methods=["GET"])
 def home():
-    return "ultimate monitor running"
+    return "AI price tracker running"
 
 
 # ----------------------------
