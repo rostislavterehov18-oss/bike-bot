@@ -26,31 +26,39 @@ def send_message(chat_id, text):
 
 # ----------------------------
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122 Safari/537.36"
+    "User-Agent": "Mozilla/5.0"
 }
 
 
 # ----------------------------
-# 🧠 ОЦЕНКА ЦЕНЫ
+def safe_float(val):
+    try:
+        return float(val)
+    except:
+        return None
+
+
+# ----------------------------
+# 🧠 УМНАЯ ОЦЕНКА
 # ----------------------------
 def price_score(price, base):
     if price is None:
-        return "❓ неизвестно"
+        return "❓"
 
     ratio = price / base
 
     if ratio <= 0.6:
         return "🔥 выгодно"
     elif ratio <= 0.9:
-        return "👍 нормально"
+        return "👍 норм"
     else:
         return "❌ дорого"
 
 
 # ----------------------------
-# 🛰 RICARDO SEARCH
+# 🛰 RICARDO STRICT
 # ----------------------------
-def search_ricardo():
+def search_ricardo_strict():
     try:
         r = requests.get(
             "https://www.ricardo.ch/api/search/v1/search",
@@ -67,12 +75,7 @@ def search_ricardo():
         for item in items:
             title = (item.get("title") or "").lower()
             link = item.get("url") or ""
-
-            price = item.get("price")
-            try:
-                price = float(price)
-            except:
-                price = None
+            price = safe_float(item.get("price"))
 
             if not link.startswith("http"):
                 link = "https://www.ricardo.ch" + link
@@ -80,27 +83,17 @@ def search_ricardo():
             if link in seen:
                 continue
 
-            # 🛰 GARMIN
-            if "garmin" in title and price is not None and price <= 50:
+            # 🛰 Garmin
+            if "garmin" in title and price and price <= 50:
                 seen.add(link)
-                results.append(
-                    f"🛰 GARMIN ≤50 CHF\n"
-                    f"{title}\n"
-                    f"{price} CHF | {price_score(price, 80)}\n"
-                    f"{link}"
-                )
+                results.append(f"🛰 Garmin ≤50 CHF\n{title}\n{price} CHF | {price_score(price, 80)}\n{link}")
 
-            # 🚲 BIKE
-            if any(x in title for x in ["bike", "velo", "fahrrad"]) and price is not None and price <= 400:
+            # 🚲 Bike
+            if any(x in title for x in ["bike", "velo", "fahrrad"]) and price and price <= 400:
                 seen.add(link)
-                results.append(
-                    f"🚲 BIKE ≤400 CHF\n"
-                    f"{title}\n"
-                    f"{price} CHF | {price_score(price, 500)}\n"
-                    f"{link}"
-                )
+                results.append(f"🚲 Bike ≤400 CHF\n{title}\n{price} CHF | {price_score(price, 500)}\n{link}")
 
-            # 🆓 FREE
+            # 🆓 Free
             if any(x in title for x in ["gratis", "kostenlos", "verschenke", "free"]):
                 seen.add(link)
                 results.append(f"🆓 FREE\n{title}\n{link}")
@@ -112,9 +105,46 @@ def search_ricardo():
 
 
 # ----------------------------
-# 🟡 TUTTI SEARCH (SAFE)
+# 🟡 RICARDO LOOSE
 # ----------------------------
-def search_tutti():
+def search_ricardo_loose():
+    try:
+        r = requests.get(
+            "https://www.ricardo.ch/api/search/v1/search",
+            params={"query": "garmin bike velo fahrrad", "limit": 30},
+            headers=HEADERS,
+            timeout=20
+        )
+
+        data = r.json()
+        items = data.get("items", [])
+
+        results = []
+
+        for item in items:
+            title = (item.get("title") or "").lower()
+            link = item.get("url") or ""
+
+            if not link.startswith("http"):
+                link = "https://www.ricardo.ch" + link
+
+            if link in seen:
+                continue
+
+            if any(x in title for x in ["garmin", "bike", "velo", "fahrrad"]):
+                seen.add(link)
+                results.append(f"🟡 LOOSE\n{title}\n{link}")
+
+        return results
+
+    except:
+        return []
+
+
+# ----------------------------
+# 🟢 TUTTI STRICT
+# ----------------------------
+def search_tutti_strict():
     try:
         r = requests.get(
             "https://www.tutti.ch/api/v10/search",
@@ -134,12 +164,7 @@ def search_tutti():
         for item in items:
             title = (item.get("title") or "").lower()
             link = item.get("url") or ""
-
-            price = item.get("price")
-            try:
-                price = float(price)
-            except:
-                price = None
+            price = safe_float(item.get("price"))
 
             if not link.startswith("http"):
                 link = "https://www.tutti.ch" + link
@@ -147,19 +172,14 @@ def search_tutti():
             if link in seen:
                 continue
 
-            # 🛰 GARMIN
-            if "garmin" in title and price is not None and price <= 50:
+            if "garmin" in title and price and price <= 50:
                 seen.add(link)
-                results.append(f"🛰 GARMIN ≤50 CHF\n{title}\n{price} CHF\n{link}")
+                results.append(f"🛰 Garmin ≤50 CHF\n{title}\n{price} CHF\n{link}")
 
-            # 🚲 BIKE
-            if any(x in title for x in ["bike", "velo", "fahrrad"]) and price is not None and price <= 400:
+            if any(x in title for x in ["bike", "velo", "fahrrad"]) and price and price <= 400:
                 seen.add(link)
-                results.append(
-                    f"🚲 BIKE ≤400 CHF\n{title}\n{price} CHF\n{link}"
-                )
+                results.append(f"🚲 Bike ≤400 CHF\n{title}\n{price} CHF\n{link}")
 
-            # 🆓 FREE
             if any(x in title for x in ["gratis", "kostenlos", "verschenke"]):
                 seen.add(link)
                 results.append(f"🆓 FREE\n{title}\n{link}")
@@ -171,12 +191,56 @@ def search_tutti():
 
 
 # ----------------------------
-def search_all():
-    return search_ricardo() + search_tutti()
+# 🟡 TUTTI LOOSE
+# ----------------------------
+def search_tutti_loose():
+    try:
+        r = requests.get(
+            "https://www.tutti.ch/api/v10/search",
+            params={"query": "garmin bike velo", "limit": 30},
+            headers=HEADERS,
+            timeout=20
+        )
+
+        if "json" not in r.headers.get("Content-Type", ""):
+            return []
+
+        data = r.json()
+        items = data.get("items", [])
+
+        results = []
+
+        for item in items:
+            title = (item.get("title") or "").lower()
+            link = item.get("url") or ""
+
+            if not link.startswith("http"):
+                link = "https://www.tutti.ch" + link
+
+            if link in seen:
+                continue
+
+            if any(x in title for x in ["garmin", "bike", "velo"]):
+                seen.add(link)
+                results.append(f"🟡 LOOSE\n{title}\n{link}")
+
+        return results
+
+    except:
+        return []
 
 
 # ----------------------------
-# 🔁 MONITOR LOOP
+def search_all():
+    results = search_ricardo_strict() + search_tutti_strict()
+
+    # 🔥 если пусто → ослабляем фильтр
+    if not results:
+        results = search_ricardo_loose() + search_tutti_loose()
+
+    return results
+
+
 # ----------------------------
 def monitor():
     global MONITOR_RUNNING
@@ -191,7 +255,7 @@ def monitor():
                     for i in items:
                         send_message(CHAT_ID, i)
                 else:
-                    send_message(CHAT_ID, "❌ новых выгодных объявлений нет")
+                    send_message(CHAT_ID, "❌ нет новых выгодных объявлений")
 
             time.sleep(1800)
 
@@ -199,8 +263,6 @@ def monitor():
             time.sleep(60)
 
 
-# ----------------------------
-# 📩 WEBHOOK
 # ----------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -216,17 +278,13 @@ def webhook():
 
         CHAT_ID = chat_id
 
-        # 🟢 START
         if text == "/start":
-            send_message(chat_id, "🟢 Бот жив и запущен")
-            send_message(chat_id, "🧠 Монитор: Garmin + Bikes + Free (CH)")
+            send_message(chat_id, "🟢 Бот жив")
+            send_message(chat_id, "🧠 Smart монитор активен")
 
-        # 📡 STATUS
         elif text == "/status":
-            status = "🟢 работает" if MONITOR_RUNNING else "🔴 не запущен"
-            send_message(chat_id, f"Статус: {status}")
+            send_message(chat_id, f"🟢 работает" if MONITOR_RUNNING else "🔴 не запущен")
 
-        # 🔍 CHECK
         elif text == "/check":
             items = search_all()
             send_message(chat_id, "\n\n".join(items) if items else "❌ ничего не найдено")
@@ -237,7 +295,7 @@ def webhook():
 # ----------------------------
 @app.route("/", methods=["GET"])
 def home():
-    return "Smart monitor running"
+    return "Adaptive bot running"
 
 
 # ----------------------------
