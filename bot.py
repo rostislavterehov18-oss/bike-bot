@@ -3,7 +3,7 @@ import threading
 import time
 import os
 import requests
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 # ======================
 # CONFIG
@@ -14,6 +14,8 @@ CHANNEL_ID = "@swiss_bike"
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 app = Flask(__name__)
+
+seen = set()
 
 # ======================
 # TELEGRAM
@@ -31,7 +33,7 @@ def send(text):
         print("SEND ERROR:", e)
 
 # ======================
-# FILTER LOGIC
+# FILTER LOGIC (ВАЖНО)
 # ======================
 
 def is_good(title, price):
@@ -40,135 +42,160 @@ def is_good(title, price):
     if price is None:
         return False
 
+    # 🛰 Garmin
     if "garmin" in title and price <= 50:
         return True
 
-    if any(x in title for x in ["bike", "velo"]) and price <= 400:
+    # 🚲 Bikes / Velo
+    if ("bike" in title or "velo" in title) and price <= 400:
         return True
 
-    if "gratis" in title or "free" in title or "defekt" in title:
+    # 💸 cheap deals
+    if any(x in title for x in ["defekt", "kaputt", "gratis", "free", "billig"]):
         return True
 
     return False
 
 # ======================
-# SCRAPER (PLAYWRIGHT)
+# SAFE PRICE PARSE
+# ======================
+
+def parse_price(text):
+    if not text:
+        return None
+    digits = "".join([c for c in text if c.isdigit()])
+    try:
+        return float(digits)
+    except:
+        return None
+
+# ======================
+# SCRAPE TUTTI
 # ======================
 
 def scrape_tutti(page):
-    print("SCRAPE TUTTI")
+    print("SCRAPING TUTTI")
 
-    page.goto("https://www.tutti.ch/de/li/q/bike", timeout=60000)
-    page.wait_for_timeout(5000)
+    try:
+        page.goto("https://www.tutti.ch/de/li/ganze-schweiz?query=bike", timeout=60000)
+        page.wait_for_timeout(5000)
 
-    items = page.query_selector_all("article")
+        cards = page.query_selector_all("article")
 
-    for item in items[:20]:
-        try:
-            title_el = item.query_selector("h2, h3")
-            price_el = item.query_selector("[data-testid='price']")
-
-            title = title_el.inner_text() if title_el else ""
-            price_text = price_el.inner_text() if price_el else ""
-
-            price = None
+        for c in cards[:30]:
             try:
-                price = float("".join([c for c in price_text if c.isdigit()]))
+                title_el = c.query_selector("h2, h3")
+                price_el = c.query_selector("[data-testid*='price'], span")
+
+                title = title_el.inner_text() if title_el else ""
+                price = parse_price(price_el.inner_text() if price_el else "")
+
+                link_el = c.query_selector("a")
+                link = link_el.get_attribute("href") if link_el else ""
+
+                if link and not link.startswith("http"):
+                    link = "https://www.tutti.ch" + link
+
+                key = link + str(price)
+
+                if key in seen:
+                    continue
+
+                if is_good(title, price):
+                    seen.add(key)
+                    send(f"🚲 TUTTI DEAL\n{title}\n{price} CHF\n{link}")
+
             except:
-                pass
+                continue
 
-            link_el = item.query_selector("a")
-            link = link_el.get_attribute("href") if link_el else ""
-
-            if link and not link.startswith("http"):
-                link = "https://www.tutti.ch" + link
-
-            if is_good(title, price):
-                send(f"🚲 TUTTI DEAL\n{title}\n{price} CHF\n{link}")
-
-        except Exception as e:
-            print("ITEM ERROR:", e)
+    except PlaywrightTimeout:
+        print("TUTTI TIMEOUT")
 
 # ======================
-# RICARDO SCRAPER
+# SCRAPE RICARDO
 # ======================
 
 def scrape_ricardo(page):
-    print("SCRAPE RICARDO")
+    print("SCRAPING RICARDO")
 
-    page.goto("https://www.ricardo.ch/de/c/all?query=bike", timeout=60000)
-    page.wait_for_timeout(5000)
+    try:
+        page.goto("https://www.ricardo.ch/de/c/all?query=bike", timeout=60000)
+        page.wait_for_timeout(5000)
 
-    items = page.query_selector_all("article")
+        cards = page.query_selector_all("article")
 
-    for item in items[:20]:
-        try:
-            title_el = item.query_selector("h2, h3")
-            price_el = item.query_selector("span")
-
-            title = title_el.inner_text() if title_el else ""
-            price_text = price_el.inner_text() if price_el else ""
-
-            price = None
+        for c in cards[:30]:
             try:
-                price = float("".join([c for c in price_text if c.isdigit()]))
+                title_el = c.query_selector("h2, h3")
+                price_el = c.query_selector("span")
+
+                title = title_el.inner_text() if title_el else ""
+                price = parse_price(price_el.inner_text() if price_el else "")
+
+                link_el = c.query_selector("a")
+                link = link_el.get_attribute("href") if link_el else ""
+
+                if link and not link.startswith("http"):
+                    link = "https://www.ricardo.ch" + link
+
+                key = link + str(price)
+
+                if key in seen:
+                    continue
+
+                if is_good(title, price):
+                    seen.add(key)
+                    send(f"🛰 RICARDO DEAL\n{title}\n{price} CHF\n{link}")
+
             except:
-                pass
+                continue
 
-            link_el = item.query_selector("a")
-            link = link_el.get_attribute("href") if link_el else ""
-
-            if link and not link.startswith("http"):
-                link = "https://www.ricardo.ch" + link
-
-            if is_good(title, price):
-                send(f"🛰 RICARDO DEAL\n{title}\n{price} CHF\n{link}")
-
-        except Exception as e:
-            print("ITEM ERROR:", e)
+    except PlaywrightTimeout:
+        print("RICARDO TIMEOUT")
 
 # ======================
-# BOT LOOP
+# MAIN LOOP
 # ======================
 
 def bot_loop():
-    print("BOT STARTED")
-
-    send("🟢 PLAYWRIGHT BOT STARTED")
+    print("🚀 PLAYWRIGHT PRO v2 STARTED")
+    send("🟢 PLAYWRIGHT PRO v2 STARTED")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox"]
+        )
+
         page = browser.new_page()
 
         while True:
             try:
-                print("SCAN START")
+                print("=== SCAN START ===")
 
                 scrape_tutti(page)
                 scrape_ricardo(page)
 
-                send("💚 SCAN DONE")
+                send("💚 SCAN DONE - PRO v2")
 
             except Exception as e:
                 print("LOOP ERROR:", e)
-                send("⚠️ ERROR IN LOOP")
 
             time.sleep(120)
 
 # ======================
-# FLASK
+# FLASK (Render requirement)
 # ======================
 
 @app.route("/")
 def home():
-    return "bot alive"
+    return "PLAYWRIGHT PRO v2 RUNNING"
 
 # ======================
 # START
 # ======================
 
 if __name__ == "__main__":
-
     t = threading.Thread(target=bot_loop, daemon=True)
     t.start()
 
