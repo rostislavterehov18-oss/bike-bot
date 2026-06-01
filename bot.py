@@ -9,7 +9,6 @@ import time
 
 TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 CHANNEL_ID = "@swiss_bike"
-
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 app = Flask(__name__)
@@ -42,7 +41,7 @@ def send(text):
         print("SEND ERROR:", e)
 
 # ======================
-# SAFE PRICE FILTER
+# SAFE FILTER (TEMP DEBUG MODE)
 # ======================
 
 def is_good(title, price):
@@ -51,23 +50,26 @@ def is_good(title, price):
 
     t = title.lower()
 
-    if "garmin" in t and price <= 50:
+    # DEBUG MODE (ослаблено чтобы ты видел результаты)
+    if "garmin" in t and price <= 200:
         return True
 
-    if ("bike" in t or "velo" in t) and price <= 400:
+    if ("bike" in t or "velo" in t) and price <= 1000:
         return True
 
-    if "macbook" in t and price <= 1500:
+    if "macbook" in t and price <= 3000:
         return True
 
     return False
 
 # ======================
-# RICARDO SAFE SEARCH
+# RICARDO DEBUG SEARCH
 # ======================
 
 def search_ricardo():
     try:
+        print("🔎 RICARDO REQUEST...")
+
         r = requests.get(
             "https://www.ricardo.ch/api/search/v1/search",
             params={"query": "garmin bike velo macbook apple", "limit": 20},
@@ -76,12 +78,18 @@ def search_ricardo():
         )
 
         data = r.json()
+
         items = data.get("items", [])
 
+        print("RICARDO ITEMS:", len(items))
+
         for i in items:
+
             title = (i.get("title") or "").lower()
             price = i.get("price")
             link = i.get("url")
+
+            print("TITLE:", title, "PRICE:", price)
 
             if not link:
                 continue
@@ -98,29 +106,31 @@ def search_ricardo():
         print("RICARDO ERROR:", e)
 
 # ======================
-# TUTTI SAFE SEARCH (NO CRASH)
+# TUTTI DEBUG SEARCH (SAFE)
 # ======================
 
 def search_tutti():
     try:
+        print("🔎 TUTTI REQUEST...")
+
         url = "https://www.tutti.ch/de/li/q/garmin-bike-macbook"
 
         r = requests.get(url, headers=HEADERS, timeout=20)
 
-        # если блок или ошибка — просто выходим
+        print("TUTTI STATUS:", r.status_code)
+
         if r.status_code != 200:
-            print("TUTTI STATUS:", r.status_code)
             return
 
         html = r.text.lower()
 
-        # простая проверка что сайт жив
         if "tutti" not in html:
-            print("TUTTI EMPTY OR BLOCKED")
+            print("TUTTI BLOCKED OR EMPTY")
             return
 
-        if "garmin" in html or "bike" in html:
-            print("TUTTI PAGE OK")
+        # DEBUG ONLY
+        if "garmin" in html:
+            print("TUTTI HAS GARMIN DATA")
 
     except Exception as e:
         print("TUTTI ERROR:", e)
@@ -132,28 +142,26 @@ def search_tutti():
 def monitor():
     print("🚀 BOT STARTED")
 
-    # 🔥 ОБЯЗАТЕЛЬНЫЙ ТЕСТ
-    send("🟢 BOT ONLINE TEST\nЕсли ты это видишь — бот работает")
+    send("🟢 BOT START TEST\nЕсли ты это видишь — Telegram работает")
 
     last_alive = 0
 
     while True:
         try:
+            print("================================")
             print("🔍 CYCLE START")
 
             search_ricardo()
             search_tutti()
 
-            # heartbeat каждые 30 минут
             if time.time() - last_alive > 1800:
-                send("💚 Bot alive (monitor running)")
+                send("💚 Bot alive (debug mode)")
                 last_alive = time.time()
 
             print("🔍 CYCLE END")
 
         except Exception as e:
             print("MONITOR ERROR:", e)
-            send("⚠️ MONITOR ERROR: " + str(e))
 
         time.sleep(1800)
 
