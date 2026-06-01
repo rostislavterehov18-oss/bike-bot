@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 
 # ----------------------------
-# ПОИСК ТОВАРА (RICARDO)
+# ПОИСК GARMIN
 # ----------------------------
 def find_item():
     url = "https://www.ricardo.ch/api/search/v1/search"
@@ -20,16 +20,26 @@ def find_item():
     }
 
     headers = {
-        "User-Agent": "Mozilla/5.0"
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
     }
 
     try:
         r = requests.get(url, params=params, headers=headers, timeout=15)
+
+        # защита от пустого ответа
+        if not r.text:
+            return "❌ пустой ответ от API"
+
+        # защита от HTML вместо JSON
+        if "json" not in r.headers.get("Content-Type", ""):
+            return "❌ API вернул не JSON"
+
         data = r.json()
 
         items = data.get("items", [])
         if not items:
-            return "❌ Нет Garmin до 50 CHF"
+            return "❌ ничего не найдено до 50 CHF"
 
         item = items[0]
 
@@ -42,7 +52,7 @@ def find_item():
         return f"🛰 Garmin GPS\n{title}\n{link}"
 
     except Exception as e:
-        return f"❌ ошибка поиска: {str(e)}"
+        return f"❌ ошибка API: {str(e)}"
 
 
 # ----------------------------
@@ -56,7 +66,7 @@ def send_message(chat_id, text):
 
 
 # ----------------------------
-# ПРИВЕТСТВИЕ СЕРВЕР
+# ПРОВЕРКА СЕРВЕРА
 # ----------------------------
 @app.route("/", methods=["GET"])
 def home():
@@ -64,7 +74,7 @@ def home():
 
 
 # ----------------------------
-# WEBHOOK TELEGRAM
+# WEBHOOK
 # ----------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -87,7 +97,7 @@ def webhook():
 
 
 # ----------------------------
-# START SERVER
+# ЗАПУСК СЕРВЕРА
 # ----------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
