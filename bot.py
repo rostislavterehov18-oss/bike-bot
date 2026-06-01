@@ -8,7 +8,7 @@ API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 app = Flask(__name__)
 
-CHAT_ID = chat_id
+CHAT_ID = None
 seen = set()
 
 
@@ -17,16 +17,17 @@ seen = set()
 # ----------------------------
 def send_message(chat_id, text):
     try:
-        requests.post(API_URL + "/sendMessage", json={
-            "chat_id": chat_id,
-            "text": text
-        }, timeout=10)
+        requests.post(
+            API_URL + "/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=10
+        )
     except:
         pass
 
 
 # ----------------------------
-# STABLE SEARCH (HTML BASED)
+# SEARCH GARMIN (SAFE)
 # ----------------------------
 def search_items():
     url = "https://www.ricardo.ch/de/c/gps-navigation/"
@@ -38,14 +39,12 @@ def search_items():
     try:
         r = requests.get(url, headers=headers, timeout=15)
 
-        if not r.text or len(r.text) < 3000:
+        if not r.text:
             return []
 
-        html = r.text
         results = []
 
-        # ищем ссылки на товары
-        parts = html.split('href="')
+        parts = r.text.split('href="')
 
         for part in parts:
             if "/de/a/" in part:
@@ -59,7 +58,7 @@ def search_items():
 
                 seen.add(link)
 
-                results.append("🛰 Garmin / GPS найден\n" + link)
+                results.append(f"🛰 Garmin / GPS\n{link}")
 
                 if len(results) >= 3:
                     break
@@ -82,14 +81,14 @@ def monitor():
                 for item in items:
                     send_message(CHAT_ID, item)
 
-            time.sleep(600)  # 10 минут
+            time.sleep(600)  # 10 min
 
         except:
             time.sleep(60)
 
 
 # ----------------------------
-# WEBHOOK
+# WEBHOOK ROUTE
 # ----------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -107,24 +106,31 @@ def webhook():
         CHAT_ID = chat_id
 
         if text == "/start":
-            send_message(chat_id, "🛰 Монитор запущен\nGarmin GPS поиск активен")
+            send_message(chat_id, "🛰 Бот запущен\nПоиск: Garmin GPS до 50 CHF")
 
         elif text == "/check":
             items = search_items()
-
             if items:
                 send_message(chat_id, "\n\n".join(items))
             else:
-                send_message(chat_id, "❌ новых объявлений нет")
+                send_message(chat_id, "❌ ничего не найдено")
 
     return "ok"
 
 
 # ----------------------------
-# START SERVER
+# HOME ROUTE
+# ----------------------------
+@app.route("/", methods=["GET"])
+def home():
+    return "Bot is running"
+
+
+# ----------------------------
+# START
 # ----------------------------
 if __name__ == "__main__":
-    t = threading.Thread(target=monitor, daemon=True)
-    t.start()
+    thread = threading.Thread(target=monitor, daemon=True)
+    thread.start()
 
     app.run(host="0.0.0.0", port=10000)
