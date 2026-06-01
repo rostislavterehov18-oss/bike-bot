@@ -2,6 +2,7 @@ from flask import Flask, request
 import requests
 import threading
 import time
+from datetime import datetime
 
 TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
@@ -11,7 +12,7 @@ app = Flask(__name__)
 CHAT_ID = None
 seen = set()
 
-last_notify_time = 0
+all_found = []  # 🔥 для топ дня
 
 
 # ----------------------------
@@ -28,8 +29,9 @@ def send(chat_id, text):
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
+
 # ----------------------------
-def parse_price(p):
+def price(p):
     try:
         return float(p)
     except:
@@ -37,16 +39,52 @@ def parse_price(p):
 
 
 # ----------------------------
-BIKE_WORDS = ["bike", "velo", "fahrrad"]
-BROKEN_WORDS = ["defekt", "kaputt", "broken", "nicht funktioniert", "verschenke", "gratis", "for parts"]
+# 🧠 ОЦЕНКА ВЫГОДЫ
+# ----------------------------
+def score(title, price):
+    t = title.lower()
 
+    base = 500
 
-def is_broken(text):
-    return any(w in text for w in BROKEN_WORDS)
+    if "garmin" in t:
+        base = 100
+    if any(x in t for x in ["bike", "velo", "fahrrad"]):
+        base = 600
+
+    if "defekt" in t or "kaputt" in t:
+        base *= 1.5
+
+    if price is None:
+        return 50
+
+    s = max(0, int(100 - (price / base) * 100))
+
+    return min(100, s)
 
 
 # ----------------------------
-# 🛰 RICARDO (каждые 20 мин)
+BIKE_WORDS = ["bike", "velo", "fahrrad"]
+
+
+# ----------------------------
+def add_item(title, price_val, link, tag):
+    global all_found
+
+    s = score(title, price_val)
+
+    item = {
+        "title": title,
+        "price": price_val,
+        "link": link,
+        "score": s,
+        "tag": tag
+    }
+
+    all_found.append(item)
+
+
+# ----------------------------
+# 🛰 RICARDO
 # ----------------------------
 def search_ricardo():
     try:
@@ -62,10 +100,10 @@ def search_ricardo():
 
         results = []
 
-        for item in items:
-            title = (item.get("title") or "").lower()
-            link = item.get("url") or ""
-            price = parse_price(item.get("price"))
+        for i in items:
+            title = (i.get("title") or "").lower()
+            link = i.get("url") or ""
+            p = price(i.get("price"))
 
             if not link.startswith("http"):
                 link = "https://www.ricardo.ch" + link
@@ -73,16 +111,16 @@ def search_ricardo():
             if link in seen:
                 continue
 
-            # 🛰 GARMIN ≤ 50
-            if "garmin" in title and price is not None and price <= 50:
+            if "garmin" in title and p and p <= 50:
                 seen.add(link)
-                results.append(f"🛰 GARMIN ≤50 CHF\n{title}\n{price} CHF\n{link}")
+                add_item(title, p, link, "GARMIN")
+                results.append(f"🛰 Garmin\n{title}\n{p} CHF\n{link}")
 
-            # 🚲 BIKE ≤ 400 + condition
-            if any(w in title for w in BIKE_WORDS) and price is not None and price <= 400:
-                if is_broken(title) or price <= 200:
+            elif any(x in title for x in BIKE_WORDS) and p and p <= 400:
+                if "defekt" in title or p <= 200:
                     seen.add(link)
-                    results.append(f"🚲 BIKE\n{title}\n{price} CHF\n{link}")
+                    add_item(title, p, link, "BIKE")
+                    results.append(f"🚲 Bike\n{title}\n{p} CHF\n{link}")
 
         return results
 
@@ -90,8 +128,6 @@ def search_ricardo():
         return []
 
 
-# ----------------------------
-# 🟡 TUTTI (каждые 30 мин — защита от блокировки)
 # ----------------------------
 def search_tutti():
     try:
@@ -110,10 +146,10 @@ def search_tutti():
 
         results = []
 
-        for item in items:
-            title = (item.get("title") or "").lower()
-            link = item.get("url") or ""
-            price = parse_price(item.get("price"))
+        for i in items:
+            title = (i.get("title") or "").lower()
+            link = i.get("url") or ""
+            p = price(i.get("price"))
 
             if not link.startswith("http"):
                 link = "https://www.tutti.ch" + link
@@ -121,16 +157,16 @@ def search_tutti():
             if link in seen:
                 continue
 
-            # 🛰 GARMIN
-            if "garmin" in title and price is not None and price <= 50:
+            if "garmin" in title and p and p <= 50:
                 seen.add(link)
-                results.append(f"🛰 GARMIN ≤50 CHF\n{title}\n{price} CHF\n{link}")
+                add_item(title, p, link, "GARMIN")
+                results.append(f"🛰 Garmin\n{title}\n{p} CHF\n{link}")
 
-            # 🚲 BIKE
-            if any(w in title for w in BIKE_WORDS) and price is not None and price <= 400:
-                if is_broken(title) or price <= 200:
+            elif any(x in title for x in BIKE_WORDS) and (p is None or p <= 400):
+                if "defekt" in title or p == 0:
                     seen.add(link)
-                    results.append(f"🚲 BIKE\n{title}\n{price} CHF\n{link}")
+                    add_item(title, p, link, "BIKE")
+                    results.append(f"🚲 Bike\n{title}\n{p} CHF\n{link}")
 
         return results
 
@@ -139,33 +175,57 @@ def search_tutti():
 
 
 # ----------------------------
+def search_all():
+    return search_ricardo() + search_tutti()
+
+
+# ----------------------------
+# 🔁 MONITOR RICARDO (20 min)
+# ----------------------------
 def monitor_ricardo():
     while True:
-        try:
-            if CHAT_ID:
-                items = search_ricardo()
-                for i in items:
-                    send(CHAT_ID, i)
-            time.sleep(1200)  # 20 min
-        except:
-            time.sleep(60)
+        if CHAT_ID:
+            items = search_ricardo()
+            for i in items:
+                send(CHAT_ID, i)
+        time.sleep(1200)
 
 
+# ----------------------------
+# 🔁 MONITOR TUTTI (30 min)
 # ----------------------------
 def monitor_tutti():
     while True:
-        try:
-            if CHAT_ID:
-                items = search_tutti()
-                for i in items:
-                    send(CHAT_ID, i)
-            time.sleep(1800)  # 30 min
-        except:
-            time.sleep(60)
+        if CHAT_ID:
+            items = search_tutti()
+            for i in items:
+                send(CHAT_ID, i)
+        time.sleep(1800)
 
 
 # ----------------------------
-# 💬 TELEGRAM
+# 🏆 DAILY TOP DEALS
+# ----------------------------
+def top_deals_loop():
+    global all_found
+
+    while True:
+        time.sleep(86400)  # 24h
+
+        if CHAT_ID and all_found:
+
+            sorted_items = sorted(all_found, key=lambda x: x["score"], reverse=True)[:10]
+
+            msg = "🏆 TOP DEALS OF THE DAY\n\n"
+
+            for i in sorted_items:
+                msg += f"{i['tag']} | {i['score']}/100\n{i['title']}\n{i['price']} CHF\n{i['link']}\n\n"
+
+            send(CHAT_ID, msg)
+
+            all_found = []  # reset day
+
+
 # ----------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -180,15 +240,14 @@ def webhook():
         text = data["message"].get("text", "")
 
         if text == "/start":
-            send(CHAT_ID, "🟢 PRO монитор запущен")
-            send(CHAT_ID, "🛰 Garmin ≤50 CHF | 🚲 Bikes ≤400 CHF | CH")
-
-        elif text == "/status":
-            send(CHAT_ID, "🟢 бот работает" if CHAT_ID else "🔴 нет чата")
+            send(CHAT_ID, "🟢 PRO монитор + AI рейтинг запущен")
+            send(CHAT_ID, "🚲 Bikes ≤400 CHF | 🛰 Garmin ≤50 CHF")
 
         elif text == "/check":
-            r = search_ricardo() + search_tutti()
-            send(CHAT_ID, "\n\n".join(r) if r else "❌ ничего не найдено")
+            send(CHAT_ID, "\n\n".join(search_all()) or "❌ ничего не найдено")
+
+        elif text == "/status":
+            send(CHAT_ID, "🟢 работает")
 
     return "ok"
 
@@ -196,12 +255,13 @@ def webhook():
 # ----------------------------
 @app.route("/", methods=["GET"])
 def home():
-    return "PRO monitor running"
+    return "TOP DEAL BOT RUNNING"
 
 
 # ----------------------------
 if __name__ == "__main__":
     threading.Thread(target=monitor_ricardo, daemon=True).start()
     threading.Thread(target=monitor_tutti, daemon=True).start()
+    threading.Thread(target=top_deals_loop, daemon=True).start()
 
     app.run(host="0.0.0.0", port=10000)
