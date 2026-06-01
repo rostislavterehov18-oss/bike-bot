@@ -1,24 +1,19 @@
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from flask import Flask, request
 import requests
-import os
 
 TOKEN = "8793663575:AAGbaqYzho2l3_MTceRW33SEvd_yEj2h8BU"
+URL = f"https://api.telegram.org/bot{TOKEN}"
 
-PORT = int(os.environ.get("PORT", 10000))
+app = Flask(__name__)
 
-# ⚠️ ВАЖНО: поменяй на свой Render URL
-WEBHOOK_URL = "https://bike-bot-1.onrender.com"
-
-
-# -----------------------
+# -------------------
 def find_bike():
     url = "https://www.tutti.ch/api/v10/search"
 
     params = {
         "query": "velo bike fahrrad",
         "priceTo": 200,
-        "limit": 5
+        "limit": 1
     }
 
     try:
@@ -30,41 +25,43 @@ def find_bike():
             link = "https://www.tutti.ch" + item.get("url", "")
             return f"🚲 {title}\n{link}"
 
-        return "❌ Нет товаров"
-
+        return "❌ нет товаров"
     except:
-        return "❌ Ошибка API"
+        return "❌ ошибка"
 
 
-# -----------------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🚲 Бот работает!\n\n"
-        "/check - проверить велосипеды"
+# -------------------
+@app.route("/", methods=["GET"])
+def home():
+    return "Bot is alive"
+
+
+# -------------------
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    data = request.get_json()
+
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+        text = data["message"].get("text", "")
+
+        if text == "/start":
+            send_message(chat_id, "🚲 бот работает")
+
+        elif text == "/check":
+            send_message(chat_id, find_bike())
+
+    return "ok"
+
+
+# -------------------
+def send_message(chat_id, text):
+    requests.post(
+        URL + "/sendMessage",
+        json={"chat_id": chat_id, "text": text}
     )
 
 
-async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(find_bike())
-
-
-# -----------------------
-def main():
-    app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("check", check))
-
-    print("BOT STARTED")
-
-    # 🔥 WEBHOOK режим (главное отличие!)
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=WEBHOOK_URL,
-        drop_pending_updates=True
-    )
-
-
+# -------------------
 if __name__ == "__main__":
-    main()
+    app.run(host="0.0.0.0", port=10000)
