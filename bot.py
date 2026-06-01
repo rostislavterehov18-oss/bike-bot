@@ -2,8 +2,6 @@ from flask import Flask
 import requests
 import threading
 import time
-import json
-import os
 
 # ======================
 # CONFIG
@@ -11,6 +9,7 @@ import os
 
 TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 CHANNEL_ID = "@swiss_bike"
+
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 app = Flask(__name__)
@@ -18,11 +17,11 @@ app = Flask(__name__)
 seen = set()
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    "User-Agent": "Mozilla/5.0"
 }
 
 # ======================
-# TELEGRAM
+# TELEGRAM SEND
 # ======================
 
 def send(text):
@@ -36,34 +35,35 @@ def send(text):
             },
             timeout=15
         )
-        print("SEND:", r.text)
+
+        print("SEND RESPONSE:", r.text)
 
     except Exception as e:
         print("SEND ERROR:", e)
 
 # ======================
-# SMART PRICE FILTER
+# SAFE PRICE FILTER
 # ======================
 
 def is_good(title, price):
     if price is None:
         return False
 
-    title = title.lower()
+    t = title.lower()
 
-    if "garmin" in title and price <= 50:
+    if "garmin" in t and price <= 50:
         return True
 
-    if ("bike" in title or "velo" in title) and price <= 400:
+    if ("bike" in t or "velo" in t) and price <= 400:
         return True
 
-    if "macbook" in title and price <= 1500:
+    if "macbook" in t and price <= 1500:
         return True
 
     return False
 
 # ======================
-# RICARDO (STABLE API)
+# RICARDO SAFE SEARCH
 # ======================
 
 def search_ricardo():
@@ -92,107 +92,86 @@ def search_ricardo():
             seen.add(link)
 
             if is_good(title, price):
-                send(f"🔥 RICARDO DEAL\n{title}\n{price} CHF\n{link}")
+                send("🔥 RICARDO DEAL\n" + title + "\n" + str(price) + " CHF\n" + link)
 
     except Exception as e:
         print("RICARDO ERROR:", e)
 
 # ======================
-# TUTTI SMART RETRY SYSTEM
+# TUTTI SAFE SEARCH (NO CRASH)
 # ======================
 
-tutti_fail_count = 0
-tutti_cooldown = 0
-
 def search_tutti():
-    global tutti_fail_count, tutti_cooldown
+    try:
+        url = "https://www.tutti.ch/de/li/q/garmin-bike-macbook"
 
-    if time.time() < tutti_cooldown:
-        print("TUTTI COOLING DOWN...")
-        return
+        r = requests.get(url, headers=HEADERS, timeout=20)
 
-    url = "https://www.tutti.ch/de/li/q/garmin-bike-macbook"
+        # если блок или ошибка — просто выходим
+        if r.status_code != 200:
+            print("TUTTI STATUS:", r.status_code)
+            return
 
-    for attempt in range(3):
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=15)
+        html = r.text.lower()
 
-            # BLOCKED OR ERROR
-            if r.status_code in [403, 429, 503]:
-                print(f"TUTTI BLOCKED {r.status_code}")
-                raise Exception("blocked")
+        # простая проверка что сайт жив
+        if "tutti" not in html:
+            print("TUTTI EMPTY OR BLOCKED")
+            return
 
-            html = r.text.lower()
+        if "garmin" in html or "bike" in html:
+            print("TUTTI PAGE OK")
 
-            if "garmin" in html or "bike" in html:
-                print("TUTTI OK")
-
-            else:
-                print("TUTTI EMPTY RESPONSE")
-
-            tutti_fail_count = 0
-            return html
-
-        except Exception as e:
-            print(f"TUTTI FAIL attempt {attempt+1}", e)
-            time.sleep(5 * (attempt + 1))
-
-    # ======================
-    # FAILURE MODE
-    # ======================
-
-    tutti_fail_count += 1
-    print("TUTTI DOWN COUNT:", tutti_fail_count)
-
-    # cooldown system
-    if tutti_fail_count >= 3:
-        tutti_cooldown = time.time() + 600  # 10 min pause
-        send("⚠️ Tutti временно недоступен, переключаюсь на Ricardo")
-
-    return None
+    except Exception as e:
+        print("TUTTI ERROR:", e)
 
 # ======================
 # MONITOR LOOP
 # ======================
 
 def monitor():
-    print("🚀 BOT V5 STARTED")
+    print("🚀 BOT STARTED")
 
-    send("🟢 Bot V5 started\nSmart monitoring active")
+    # 🔥 ОБЯЗАТЕЛЬНЫЙ ТЕСТ
+    send("🟢 BOT ONLINE TEST\nЕсли ты это видишь — бот работает")
 
     last_alive = 0
 
     while True:
         try:
-            print("🔍 SEARCH CYCLE START")
+            print("🔍 CYCLE START")
 
             search_ricardo()
             search_tutti()
 
-            # heartbeat
-            if time.time() - last_alive > 3600:
-                send("💚 Bot alive (V5 Smart Mode)")
+            # heartbeat каждые 30 минут
+            if time.time() - last_alive > 1800:
+                send("💚 Bot alive (monitor running)")
                 last_alive = time.time()
 
-            print("🔍 SEARCH CYCLE END")
+            print("🔍 CYCLE END")
 
         except Exception as e:
             print("MONITOR ERROR:", e)
+            send("⚠️ MONITOR ERROR: " + str(e))
 
         time.sleep(1800)
 
 # ======================
-# FLASK (RENDER)
+# FLASK (RENDER KEEP ALIVE)
 # ======================
 
 @app.route("/")
 def home():
-    return "Bot V5 running"
+    return "bot running"
 
 # ======================
 # START
 # ======================
 
 if __name__ == "__main__":
+    print("BOT STARTING")
+
     threading.Thread(target=monitor, daemon=True).start()
+
     app.run(host="0.0.0.0", port=10000)
