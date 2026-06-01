@@ -5,7 +5,7 @@ import asyncio
 import json
 import os
 
-TOKEN = "8793663575:AAENYY0AMKjd3dXZlKX_uwrlEWgRDmAFIPU"
+TOKEN = "8793663575:AAEINigqyWvh1VfFpBavsPFuN-TCsgiSUos"
 
 CHAT_ID = None
 
