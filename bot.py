@@ -13,6 +13,8 @@ seen = set()
 
 
 # ----------------------------
+# SEND MESSAGE
+# ----------------------------
 def send_message(chat_id, text):
     try:
         requests.post(API_URL + "/sendMessage", json={
@@ -24,33 +26,39 @@ def send_message(chat_id, text):
 
 
 # ----------------------------
+# SAFE HEADERS
+# ----------------------------
 HEADERS = {
-    "User-Agent": "Mozilla/5.0"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36"
 }
 
 
 # ----------------------------
-# RICARDO SEARCH
+# RICARDO SEARCH (SAFE)
 # ----------------------------
 def search_ricardo():
-    url = "https://www.ricardo.ch/api/search/v1/search"
-
-    params = {
-        "query": "Garmin Fahrrad bike",
-        "limit": 20
-    }
-
     try:
-        r = requests.get(url, headers=HEADERS, params=params, timeout=20)
-        data = r.json()
+        r = requests.get(
+            "https://www.ricardo.ch/api/search/v1/search",
+            params={"query": "garmin bike velo fahrrad navigation", "limit": 20},
+            headers=HEADERS,
+            timeout=20
+        )
 
+        data = r.json()
         items = data.get("items", [])
+
         results = []
 
         for item in items:
             title = (item.get("title") or "").lower()
-            price = item.get("price", None)
-            link = item.get("url", "")
+            link = item.get("url") or ""
+
+            price = item.get("price")
+            try:
+                price = float(price)
+            except:
+                price = 999999
 
             if not link.startswith("http"):
                 link = "https://www.ricardo.ch" + link
@@ -58,23 +66,20 @@ def search_ricardo():
             if link in seen:
                 continue
 
-            # ----------------------------
-            # 🛰 GARMIN 0-50 CHF
-            # ----------------------------
-            if "garmin" in title:
-                if price is not None and 0 <= price <= 50:
-                    seen.add(link)
-                    results.append(f"🛰 Garmin (0-50 CHF)\n{title}\n{price} CHF\n{link}")
+            # 🛰 GARMIN 0–50
+            if "garmin" in title and price <= 50:
+                seen.add(link)
+                results.append(f"🛰 Garmin ≤50 CHF\n{title}\n{price} CHF\n{link}")
 
-            # ----------------------------
-            # 🚲 BIKES <= 200 CHF
-            # ----------------------------
-            bike_words = ["bike", "fahrrad", "velo"]
+            # 🚲 BIKE ≤200
+            if any(x in title for x in ["bike", "velo", "fahrrad"]) and price <= 200:
+                seen.add(link)
+                results.append(f"🚲 Bike ≤200 CHF\n{title}\n{price} CHF\n{link}")
 
-            if any(w in title for w in bike_words):
-                if price is not None and price <= 200:
-                    seen.add(link)
-                    results.append(f"🚲 Bike (≤200 CHF)\n{title}\n{price} CHF\n{link}")
+            # 🆓 FREE words
+            if any(x in title for x in ["gratis", "kostenlos", "verschenke", "free"]):
+                seen.add(link)
+                results.append(f"🆓 FREE item\n{title}\n{link}")
 
         return results
 
@@ -83,18 +88,16 @@ def search_ricardo():
 
 
 # ----------------------------
-# TUTTI SEARCH
+# TUTTI SEARCH (SAFE LIGHT)
 # ----------------------------
 def search_tutti():
-    url = "https://www.tutti.ch/api/v10/search"
-
-    params = {
-        "query": "garmin fahrrad bike",
-        "limit": 20
-    }
-
     try:
-        r = requests.get(url, headers=HEADERS, params=params, timeout=20)
+        r = requests.get(
+            "https://www.tutti.ch/api/v10/search",
+            params={"query": "garmin bike velo gratis verschenken", "limit": 20},
+            headers=HEADERS,
+            timeout=20
+        )
 
         if "json" not in r.headers.get("Content-Type", ""):
             return []
@@ -106,8 +109,13 @@ def search_tutti():
 
         for item in items:
             title = (item.get("title") or "").lower()
+            link = item.get("url") or ""
+
             price = item.get("price", 999999)
-            link = item.get("url", "")
+            try:
+                price = float(price)
+            except:
+                price = 999999
 
             if not link.startswith("http"):
                 link = "https://www.tutti.ch" + link
@@ -115,32 +123,20 @@ def search_tutti():
             if link in seen:
                 continue
 
-            # ----------------------------
-            # 🚲 FREE BIKES (GERMAN WORDS)
-            # ----------------------------
-            free_words = ["gratis", "kostenlos", "zu verschenken", "free"]
-
-            if any(w in title for w in free_words):
+            # 🛰 GARMIN
+            if "garmin" in title and price <= 50:
                 seen.add(link)
-                results.append(f"🚲 FREE Bike\n{title}\n{link}")
+                results.append(f"🛰 Garmin ≤50 CHF\n{title}\n{price} CHF\n{link}")
 
-            # ----------------------------
-            # 🚲 BIKE ≤ 200 CHF
-            # ----------------------------
-            bike_words = ["bike", "fahrrad", "velo"]
+            # 🚲 FREE bikes
+            if any(x in title for x in ["gratis", "kostenlos", "verschenke"]):
+                seen.add(link)
+                results.append(f"🚲 FREE bike\n{title}\n{link}")
 
-            if any(w in title for w in bike_words):
-                if price <= 200:
-                    seen.add(link)
-                    results.append(f"🚲 Bike (≤200 CHF)\n{title}\n{price} CHF\n{link}")
-
-            # ----------------------------
-            # 🛰 GARMIN 0-50
-            # ----------------------------
-            if "garmin" in title:
-                if price <= 50:
-                    seen.add(link)
-                    results.append(f"🛰 Garmin (0-50 CHF)\n{title}\n{price} CHF\n{link}")
+            # 🚲 BIKE ≤200
+            if any(x in title for x in ["bike", "velo", "fahrrad"]) and price <= 200:
+                seen.add(link)
+                results.append(f"🚲 Bike ≤200 CHF\n{title}\n{price} CHF\n{link}")
 
         return results
 
@@ -149,10 +145,14 @@ def search_tutti():
 
 
 # ----------------------------
+# COMBINED SEARCH
+# ----------------------------
 def search_all():
     return search_ricardo() + search_tutti()
 
 
+# ----------------------------
+# MONITOR (30 MIN)
 # ----------------------------
 def monitor():
     while True:
@@ -160,15 +160,20 @@ def monitor():
             if CHAT_ID:
                 items = search_all()
 
-                for i in items:
-                    send_message(CHAT_ID, i)
+                if items:
+                    for i in items:
+                        send_message(CHAT_ID, i)
+                else:
+                    send_message(CHAT_ID, "❌ новых объявлений нет")
 
-            time.sleep(1800)  # 30 min
+            time.sleep(1800)
 
         except:
             time.sleep(60)
 
 
+# ----------------------------
+# WEBHOOK
 # ----------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -180,16 +185,18 @@ def webhook():
         return "ok"
 
     if "message" in data:
-        CHAT_ID = data["message"]["chat"]["id"]
+        chat_id = data["message"]["chat"]["id"]
         text = data["message"].get("text", "")
 
+        CHAT_ID = chat_id
+
         if text == "/start":
-            send_message(CHAT_ID, "🛰 Монитор запущен\nGarmin 0-50 CHF + Bikes ≤200 CHF + Free bikes")
+            send_message(chat_id, "🛰 Бот запущен\nGarmin + Bikes + Free items (CH)")
+            send_message(chat_id, "🔥 TEST: бот жив и работает")
 
         elif text == "/check":
             items = search_all()
-
-            send_message(CHAT_ID, "\n\n".join(items) if items else "❌ ничего не найдено")
+            send_message(chat_id, "\n\n".join(items) if items else "❌ ничего не найдено")
 
     return "ok"
 
@@ -202,7 +209,5 @@ def home():
 
 # ----------------------------
 if __name__ == "__main__":
-    t = threading.Thread(target=monitor, daemon=True)
-    t.start()
-
+    threading.Thread(target=monitor, daemon=True).start()
     app.run(host="0.0.0.0", port=10000)
