@@ -170,14 +170,14 @@ async def post_init(app: Application):
 # MAIN
 # -------------------------
 def main():
-
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", start))
 
     print("🚲 Бот запущен...")
 
-    app.run_polling()
+    # 🔥 защита от старых апдейтов
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
