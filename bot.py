@@ -2,10 +2,7 @@ from flask import Flask
 import requests
 import threading
 import time
-
-# ======================
-# CONFIG
-# ======================
+import sys
 
 TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 CHANNEL_ID = "@swiss_bike"
@@ -13,173 +10,118 @@ API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 app = Flask(__name__)
 
-seen = set()
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 # ======================
-# TELEGRAM SEND
+# TELEGRAM (SAFE)
 # ======================
 
 def send(text):
     try:
         r = requests.post(
             API_URL + "/sendMessage",
-            json={
-                "chat_id": CHANNEL_ID,
-                "text": text,
-                "disable_web_page_preview": True
-            },
-            timeout=15
+            json={"chat_id": CHANNEL_ID, "text": text},
+            timeout=10
         )
-
-        print("SEND RESPONSE:", r.text)
-
+        print("SEND:", r.text)
     except Exception as e:
         print("SEND ERROR:", e)
 
 # ======================
-# SAFE FILTER (TEMP DEBUG MODE)
-# ======================
-
-def is_good(title, price):
-    if price is None:
-        return False
-
-    t = title.lower()
-
-    # DEBUG MODE (ослаблено чтобы ты видел результаты)
-    if "garmin" in t and price <= 200:
-        return True
-
-    if ("bike" in t or "velo" in t) and price <= 1000:
-        return True
-
-    if "macbook" in t and price <= 3000:
-        return True
-
-    return False
-
-# ======================
-# RICARDO DEBUG SEARCH
+# DEBUG RICARDO
 # ======================
 
 def search_ricardo():
-    try:
-        print("🔎 RICARDO REQUEST...")
+    print("🔎 RICARDO RUNNING")
 
+    try:
         r = requests.get(
             "https://www.ricardo.ch/api/search/v1/search",
-            params={"query": "garmin bike velo macbook apple", "limit": 20},
+            params={"query": "garmin bike velo macbook", "limit": 10},
             headers=HEADERS,
-            timeout=20
+            timeout=15
         )
 
         data = r.json()
-
         items = data.get("items", [])
 
         print("RICARDO ITEMS:", len(items))
 
-        for i in items:
-
-            title = (i.get("title") or "").lower()
-            price = i.get("price")
-            link = i.get("url")
-
-            print("TITLE:", title, "PRICE:", price)
-
-            if not link:
-                continue
-
-            if link in seen:
-                continue
-
-            seen.add(link)
-
-            if is_good(title, price):
-                send("🔥 RICARDO DEAL\n" + title + "\n" + str(price) + " CHF\n" + link)
+        for i in items[:5]:
+            print("ITEM:", i.get("title"), i.get("price"))
 
     except Exception as e:
         print("RICARDO ERROR:", e)
 
 # ======================
-# TUTTI DEBUG SEARCH (SAFE)
+# DEBUG TUTTI
 # ======================
 
 def search_tutti():
+    print("🔎 TUTTI RUNNING")
+
     try:
-        print("🔎 TUTTI REQUEST...")
-
-        url = "https://www.tutti.ch/de/li/q/garmin-bike-macbook"
-
-        r = requests.get(url, headers=HEADERS, timeout=20)
+        r = requests.get(
+            "https://www.tutti.ch/de/li/q/bike",
+            headers=HEADERS,
+            timeout=15
+        )
 
         print("TUTTI STATUS:", r.status_code)
-
-        if r.status_code != 200:
-            return
-
-        html = r.text.lower()
-
-        if "tutti" not in html:
-            print("TUTTI BLOCKED OR EMPTY")
-            return
-
-        # DEBUG ONLY
-        if "garmin" in html:
-            print("TUTTI HAS GARMIN DATA")
 
     except Exception as e:
         print("TUTTI ERROR:", e)
 
 # ======================
-# MONITOR LOOP
+# MONITOR (FORCED LOOP)
 # ======================
 
 def monitor():
-    print("🚀 BOT STARTED")
+    print("🚀 MONITOR THREAD STARTED")
+    sys.stdout.flush()
 
-    send("🟢 BOT START TEST\nЕсли ты это видишь — Telegram работает")
-
-    last_alive = 0
+    counter = 0
 
     while True:
         try:
-            print("================================")
-            print("🔍 CYCLE START")
+            counter += 1
+
+            print(f"🔁 LOOP {counter}")
 
             search_ricardo()
             search_tutti()
 
-            if time.time() - last_alive > 1800:
-                send("💚 Bot alive (debug mode)")
-                last_alive = time.time()
-
-            print("🔍 CYCLE END")
+            if counter == 1:
+                send("🟢 BOT START CONFIRMED")
 
         except Exception as e:
-            print("MONITOR ERROR:", e)
+            print("MONITOR CRASH:", e)
 
-        time.sleep(1800)
+        time.sleep(30)
 
 # ======================
-# FLASK (RENDER KEEP ALIVE)
+# FLASK
 # ======================
 
 @app.route("/")
 def home():
-    return "bot running"
+    return "alive"
 
 # ======================
-# START
+# START (IMPORTANT FIX)
 # ======================
 
 if __name__ == "__main__":
     print("BOT STARTING")
 
-    threading.Thread(target=monitor, daemon=True).start()
+    # 🔥 CRITICAL: start thread BEFORE flask blocks
+    t = threading.Thread(target=monitor)
+    t.daemon = True
+    t.start()
+
+    # small delay to ensure thread starts
+    time.sleep(2)
+
+    send("🟢 MANUAL START TEST")
 
     app.run(host="0.0.0.0", port=10000)
