@@ -1,7 +1,13 @@
 from flask import Flask
 import requests
+import threading
 import time
 import re
+import os
+
+# ======================
+# CONFIG
+# ======================
 
 TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 CHANNEL_ID = "@swiss_bike"
@@ -24,12 +30,12 @@ def send(text):
             json={"chat_id": CHANNEL_ID, "text": text},
             timeout=10
         )
-        print("SEND OK:", text)
+        print("SEND OK")
     except Exception as e:
         print("SEND ERROR:", e)
 
 # ======================
-# FILTER
+# SIMPLE FILTER
 # ======================
 
 def is_good(title, price):
@@ -47,7 +53,7 @@ def is_good(title, price):
     return False
 
 # ======================
-# SIMPLE RICARDO (SAFE)
+# RICARDO SAFE
 # ======================
 
 def search_ricardo():
@@ -76,7 +82,7 @@ def search_ricardo():
 
             seen.add(full)
 
-            send("📦 Ricardo item found:\n" + full)
+            send("📦 Ricardo found:\n" + full)
 
     except Exception as e:
         print("RICARDO ERROR:", e)
@@ -101,13 +107,13 @@ def search_tutti():
         print("TUTTI ERROR:", e)
 
 # ======================
-# MAIN LOOP (NO THREAD)
+# MONITOR LOOP (THREAD SAFE)
 # ======================
 
-def run_bot():
-    print("BOT STARTED")
+def monitor():
+    print("MONITOR STARTED")
 
-    send("🟢 BOT ONLINE (v9 safe loop)")
+    send("🟢 BOT STARTED SUCCESSFULLY")
 
     while True:
         try:
@@ -120,17 +126,26 @@ def run_bot():
         time.sleep(60)
 
 # ======================
-# FLASK
+# FLASK ROUTE (IMPORTANT)
 # ======================
 
 @app.route("/")
 def home():
-    return "alive"
+    return "bot alive"
 
 # ======================
-# START
+# STARTUP (IMPORTANT FIX)
 # ======================
 
 if __name__ == "__main__":
-    run_bot()
-    app.run(host="0.0.0.0", port=10000)
+    print("MAIN START")
+
+    # 🔥 start background thread FIRST
+    t = threading.Thread(target=monitor)
+    t.daemon = True
+    t.start()
+
+    # 🔥 THEN start web server (Render needs this)
+    port = int(os.environ.get("PORT", 10000))
+
+    app.run(host="0.0.0.0", port=port)
