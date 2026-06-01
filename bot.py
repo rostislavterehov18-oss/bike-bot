@@ -9,7 +9,7 @@ import os
 # CONFIG
 # =========================
 
-TOKEN = "8793663575:AAG1FQRNTPEBL7jT5jQyiViAnnc23KIwPrYE"
+TOKEN = "8793663575:AAHSXPQIT16ZLn9ycLzwcQI3pWg0sdyfcwU"
 CHAT_ID = 5449343705  # твой Telegram ID
 
 seen_file = "seen_items.json"
