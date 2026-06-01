@@ -1,76 +1,91 @@
 from flask import Flask, request
 import requests
+import threading
+import time
 
 TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 app = Flask(__name__)
 
+CHAT_ID = None
+seen = set()
+
 
 # ----------------------------
-# ПОИСК GARMIN
+# TELEGRAM SEND
 # ----------------------------
-def find_item():
-    url = "https://www.ricardo.ch/api/search/v1/search"
+def send_message(chat_id, text):
+    try:
+        requests.post(API_URL + "/sendMessage", json={
+            "chat_id": chat_id,
+            "text": text
+        }, timeout=10)
+    except:
+        pass
 
-    params = {
-        "query": "Garmin GPS navigator",
-        "priceTo": 50,
-        "limit": 1
-    }
+
+# ----------------------------
+# STABLE SEARCH (HTML BASED)
+# ----------------------------
+def search_items():
+    url = "https://www.ricardo.ch/de/c/gps-navigation/"
 
     headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json"
+        "User-Agent": "Mozilla/5.0"
     }
 
     try:
-        r = requests.get(url, params=params, headers=headers, timeout=15)
+        r = requests.get(url, headers=headers, timeout=15)
 
-        # защита от пустого ответа
-        if not r.text:
-            return "❌ пустой ответ от API"
+        if not r.text or len(r.text) < 3000:
+            return []
 
-        # защита от HTML вместо JSON
-        if "json" not in r.headers.get("Content-Type", ""):
-            return "❌ API вернул не JSON"
+        html = r.text
+        results = []
 
-        data = r.json()
+        # ищем ссылки на товары
+        parts = html.split('href="')
 
-        items = data.get("items", [])
-        if not items:
-            return "❌ ничего не найдено до 50 CHF"
+        for part in parts:
+            if "/de/a/" in part:
+                link = part.split('"')[0]
 
-        item = items[0]
+                if not link.startswith("http"):
+                    link = "https://www.ricardo.ch" + link
 
-        title = item.get("title", "no title")
-        link = item.get("url", "")
+                if link in seen:
+                    continue
 
-        if not link.startswith("http"):
-            link = "https://www.ricardo.ch" + link
+                seen.add(link)
 
-        return f"🛰 Garmin GPS\n{title}\n{link}"
+                results.append("🛰 Garmin / GPS найден\n" + link)
 
-    except Exception as e:
-        return f"❌ ошибка API: {str(e)}"
+                if len(results) >= 3:
+                    break
 
+        return results
 
-# ----------------------------
-# ОТПРАВКА СООБЩЕНИЯ
-# ----------------------------
-def send_message(chat_id, text):
-    requests.post(API_URL + "/sendMessage", json={
-        "chat_id": chat_id,
-        "text": text
-    })
+    except:
+        return []
 
 
 # ----------------------------
-# ПРОВЕРКА СЕРВЕРА
+# MONITOR LOOP
 # ----------------------------
-@app.route("/", methods=["GET"])
-def home():
-    return "Bot is alive"
+def monitor():
+    while True:
+        try:
+            if CHAT_ID:
+                items = search_items()
+
+                for item in items:
+                    send_message(CHAT_ID, item)
+
+            time.sleep(600)  # 10 минут
+
+        except:
+            time.sleep(60)
 
 
 # ----------------------------
@@ -78,6 +93,8 @@ def home():
 # ----------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    global CHAT_ID
+
     data = request.get_json()
 
     if not data:
@@ -87,17 +104,27 @@ def webhook():
         chat_id = data["message"]["chat"]["id"]
         text = data["message"].get("text", "")
 
+        CHAT_ID = chat_id
+
         if text == "/start":
-            send_message(chat_id, "🛰 Бот запущен\nПоиск: Garmin GPS до 50 CHF")
+            send_message(chat_id, "🛰 Монитор запущен\nGarmin GPS поиск активен")
 
         elif text == "/check":
-            send_message(chat_id, find_item())
+            items = search_items()
+
+            if items:
+                send_message(chat_id, "\n\n".join(items))
+            else:
+                send_message(chat_id, "❌ новых объявлений нет")
 
     return "ok"
 
 
 # ----------------------------
-# ЗАПУСК СЕРВЕРА
+# START SERVER
 # ----------------------------
 if __name__ == "__main__":
+    t = threading.Thread(target=monitor, daemon=True)
+    t.start()
+
     app.run(host="0.0.0.0", port=10000)
