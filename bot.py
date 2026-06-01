@@ -8,7 +8,7 @@ API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 app = Flask(__name__)
 
-CHAT_ID = None
+CHAT_ID = chat_id
 seen = set()
 
 
