@@ -3,13 +3,12 @@ import requests
 import threading
 import time
 
-TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
+TOKEN = "В8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-app = Flask(__name__)
-
-# ✅ ТВОЙ КАНАЛ
 CHANNEL_ID = "@swiss_bike"
+
+app = Flask(__name__)
 
 seen = set()
 
@@ -17,23 +16,20 @@ seen = set()
 # ----------------------------
 def send(text):
     try:
-        r = requests.post(API_URL + "/sendMessage", json={
+        requests.post(API_URL + "/sendMessage", json={
             "chat_id": CHANNEL_ID,
             "text": text,
             "disable_web_page_preview": False
         }, timeout=10)
-
-        print("SEND:", r.text)
-
-    except Exception as e:
-        print("SEND ERROR:", e)
+    except:
+        pass
 
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
 # ----------------------------
-def parse_price(p):
+def price(p):
     try:
         return float(p)
     except:
@@ -41,13 +37,55 @@ def parse_price(p):
 
 
 # ----------------------------
-# 🚲 SEARCH LOGIC
+# 🧠 РЫНОЧНАЯ ОЦЕНКА (упрощённая)
 # ----------------------------
-def search():
+def market_value(title):
+    t = title.lower()
+
+    if "macbook pro" in t:
+        return 1200
+    if "macbook air" in t:
+        return 900
+    if "garmin" in t:
+        return 120
+    if any(x in t for x in ["bike", "velo", "fahrrad"]):
+        return 600
+
+    return 300
+
+
+# ----------------------------
+def score(title, price_val):
+    if price_val is None:
+        return 40
+
+    market = market_value(title)
+
+    ratio = price_val / market
+
+    if ratio < 0.4:
+        return 95
+    if ratio < 0.6:
+        return 80
+    if ratio < 0.8:
+        return 65
+    return 40
+
+
+# ----------------------------
+def is_good(title, price_val):
+    s = score(title, price_val)
+    return s >= 75
+
+
+# ----------------------------
+# 🛰 RICARDO
+# ----------------------------
+def search_ricardo():
     try:
         r = requests.get(
             "https://www.ricardo.ch/api/search/v1/search",
-            params={"query": "garmin bike velo fahrrad defekt kaputt gratis", "limit": 30},
+            params={"query": "garmin bike velo macbook apple laptop", "limit": 30},
             headers=HEADERS,
             timeout=20
         )
@@ -60,7 +98,7 @@ def search():
         for i in items:
             title = (i.get("title") or "").lower()
             link = i.get("url") or ""
-            price = parse_price(i.get("price"))
+            p = price(i.get("price"))
 
             if not link.startswith("http"):
                 link = "https://www.ricardo.ch" + link
@@ -68,65 +106,104 @@ def search():
             if link in seen:
                 continue
 
-            # 🛰 GARMIN ≤ 50 CHF
-            if "garmin" in title and price is not None and price <= 50:
+            # 🛰 GARMIN
+            if "garmin" in title and p and p <= 50:
                 seen.add(link)
-                results.append(f"🛰 GARMIN DEAL\n{title}\n{price} CHF\n{link}")
+                send(f"🛰 GARMIN\n{title}\n{p} CHF\n{link}")
+                continue
 
-            # 🚲 BIKE ≤ 400 CHF
-            elif ("bike" in title or "velo" in title or "fahrrad" in title) and price is not None and price <= 400:
-                if "defekt" in title or "kaputt" in title or price <= 200:
+            # 🚲 BIKE
+            if any(x in title for x in ["bike", "velo", "fahrrad"]) and p and p <= 400:
+                if is_good(title, p):
                     seen.add(link)
-                    results.append(f"🚲 BIKE DEAL\n{title}\n{price} CHF\n{link}")
+                    send(f"🚲 BIKE DEAL\n{title}\n{p} CHF (🔥 {score(title,p)}/100)\n{link}")
+                continue
 
-        return results
+            # 💻 MACBOOK
+            if "macbook" in title and p and p <= 2000:
+                if is_good(title, p):
+                    seen.add(link)
+                    send(f"💻 APPLE DEAL\n{title}\n{p} CHF (🔥 {score(title,p)}/100)\n{link}")
+                continue
 
-    except Exception as e:
-        print("SEARCH ERROR:", e)
         return []
+
+    except:
+        return []
+
+
+# ----------------------------
+# 🟡 TUTTI
+# ----------------------------
+def search_tutti():
+    try:
+        r = requests.get(
+            "https://www.tutti.ch/api/v10/search",
+            params={"query": "garmin bike macbook apple laptop velo", "limit": 30},
+            headers=HEADERS,
+            timeout=20
+        )
+
+        if "json" not in r.headers.get("Content-Type", ""):
+            return []
+
+        data = r.json()
+        items = data.get("items", [])
+
+        results = []
+
+        for i in items:
+            title = (i.get("title") or "").lower()
+            link = i.get("url") or ""
+            p = price(i.get("price"))
+
+            if not link.startswith("http"):
+                link = "https://www.tutti.ch" + link
+
+            if link in seen:
+                continue
+
+            if "garmin" in title and p and p <= 50:
+                seen.add(link)
+                send(f"🛰 GARMIN\n{title}\n{p} CHF\n{link}")
+
+            elif any(x in title for x in ["bike", "velo"]) and p and p <= 400:
+                if is_good(title, p):
+                    seen.add(link)
+                    send(f"🚲 BIKE\n{title}\n{p} CHF\n{link}")
+
+            elif "macbook" in title and p:
+                if is_good(title, p):
+                    seen.add(link)
+                    send(f"💻 APPLE MACBOOK\n{title}\n{p} CHF\n{link}")
+
+        return []
+
+    except:
+        return []
+
+
+# ----------------------------
+# 📘 FACEBOOK (ОПЦИОНАЛЬНО)
+# ----------------------------
+def search_facebook():
+    # ⚠️ реальный парсинг нестабилен
+    return []
 
 
 # ----------------------------
 def monitor():
     while True:
-        try:
-            items = search()
-
-            if items:
-                for i in items:
-                    send(i)
-            else:
-                print("NO NEW ITEMS")
-
-            time.sleep(1800)  # 30 минут
-
-        except Exception as e:
-            print("MONITOR ERROR:", e)
-            time.sleep(60)
+        search_ricardo()
+        search_tutti()
+        search_facebook()
+        time.sleep(1800)  # 30 минут
 
 
 # ----------------------------
 @app.route("/", methods=["GET"])
 def home():
-    return "swiss bike bot running"
-
-
-# ----------------------------
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.get_json()
-
-    if data and "message" in data:
-        text = data["message"].get("text", "")
-        chat_id = data["message"]["chat"]["id"]
-
-        if text == "/start":
-            requests.post(API_URL + "/sendMessage", json={
-                "chat_id": chat_id,
-                "text": "🟢 Монитор запущен: Garmin + Bikes (CH deals)"
-            })
-
-    return "ok"
+    return "ultimate monitor running"
 
 
 # ----------------------------
