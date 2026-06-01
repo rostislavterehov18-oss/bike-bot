@@ -4,12 +4,21 @@ import requests
 import time
 import os
 import traceback
+import sys
 
 TOKEN = "8793663575:AAGScR9IZhmB-N5sHQVpdhQmBGJwJXvBaYA"
 CHANNEL_ID = "@swiss_bike"
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 app = Flask(__name__)
+
+# ======================
+# PRINT FORCE FLUSH (ВАЖНО ДЛЯ RENDER)
+# ======================
+
+def log(msg):
+    print(msg)
+    sys.stdout.flush()
 
 # ======================
 # TELEGRAM
@@ -22,55 +31,55 @@ def send(text):
             json={"chat_id": CHANNEL_ID, "text": text},
             timeout=10
         )
-        print("SEND RESPONSE:", r.text)
+        log("SEND OK: " + r.text)
     except Exception as e:
-        print("SEND ERROR:", e)
-
-# ======================
-# SAFE TEST REQUEST
-# ======================
-
-def test_requests():
-    try:
-        print("TEST REQUEST START")
-
-        r = requests.get("https://www.ricardo.ch", timeout=10)
-
-        print("RICARDO STATUS:", r.status_code)
-
-        r2 = requests.get("https://www.tutti.ch", timeout=10)
-
-        print("TUTTI STATUS:", r2.status_code)
-
-    except Exception as e:
-        print("REQUEST ERROR:")
+        log("SEND ERROR")
         traceback.print_exc()
 
 # ======================
-# LOOP (FULL DEBUG)
+# SAFE REQUEST WRAPPER
+# ======================
+
+def safe_get(url):
+    log(f"REQUEST -> {url}")
+    try:
+        r = requests.get(url, timeout=10)
+        log(f"STATUS {url} -> {r.status_code}")
+        return r.status_code
+    except Exception:
+        log("REQUEST FAILED")
+        traceback.print_exc()
+        return None
+
+# ======================
+# LOOP
 # ======================
 
 def bot_loop():
-    print("BOT LOOP STARTED")
-    send("🟢 BOT DEBUG v14 STARTED")
+    log("🚀 BOT LOOP STARTED (V15)")
+
+    send("🟢 BOT V15 STARTED")
 
     counter = 0
 
     while True:
         try:
             counter += 1
+            log(f"\n===== LOOP {counter} =====")
 
-            print(f"\n===== LOOP {counter} =====")
+            log("STEP 1: RICARDO")
+            safe_get("https://www.ricardo.ch")
 
-            test_requests()
+            log("STEP 2: TUTTI")
+            safe_get("https://www.tutti.ch")
 
-            send(f"💚 LOOP OK #{counter}")
+            send(f"💚 LOOP OK {counter}")
 
-        except Exception as e:
-            print("LOOP ERROR:")
+        except Exception:
+            log("LOOP CRASHED")
             traceback.print_exc()
 
-        time.sleep(60)
+        time.sleep(30)
 
 # ======================
 # FLASK
@@ -86,10 +95,11 @@ def home():
 
 if __name__ == "__main__":
 
-    print("STARTING APP")
+    log("STARTING APP")
 
     t = threading.Thread(target=bot_loop, daemon=True)
     t.start()
 
     port = int(os.environ.get("PORT", 10000))
+
     app.run(host="0.0.0.0", port=port)
