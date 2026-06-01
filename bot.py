@@ -9,7 +9,7 @@ app = Flask(__name__)
 
 # -----------------------
 def find_item():
-    url = "https://www.tutti.ch/api/v10/search"
+    url = "https://www.ricardo.ch/api/search/v1/search"
 
     params = {
         "query": "Garmin GPS",
@@ -18,17 +18,11 @@ def find_item():
     }
 
     headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json"
+        "User-Agent": "Mozilla/5.0"
     }
 
     try:
         r = requests.get(url, params=params, headers=headers, timeout=15)
-
-        # защита от HTML вместо JSON
-        if "application/json" not in r.headers.get("Content-Type", ""):
-            return "❌ API блокирует запрос"
-
         data = r.json()
 
         items = data.get("items", [])
@@ -36,10 +30,46 @@ def find_item():
             return "❌ ничего не найдено"
 
         item = items[0]
-        title = item.get("title", "no title")
-        link = "https://www.tutti.ch" + item.get("url", "")
 
-        return f"🛰 Garmin GPS\n{title}\n{link}"
+        title = item.get("title", "no title")
+        link = item.get("url", "")
+
+        if not link.startswith("http"):
+            link = "https://www.ricardo.ch" + link
+
+        return f"🛰 Garmin GPS (Ricardo)\n{title}\n{link}"
+
+    except Exception as e:
+        return f"❌ ошибка: {str(e)}"def find_item():
+    url = "https://www.ricardo.ch/api/search/v1/search"
+
+    params = {
+        "query": "Garmin GPS",
+        "priceTo": 50,
+        "limit": 5
+    }
+
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=15)
+        data = r.json()
+
+        items = data.get("items", [])
+        if not items:
+            return "❌ ничего не найдено"
+
+        item = items[0]
+
+        title = item.get("title", "no title")
+        link = item.get("url", "")
+
+        if not link.startswith("http"):
+            link = "https://www.ricardo.ch" + link
+
+        return f"🛰 Garmin GPS (Ricardo)\n{title}\n{link}"
 
     except Exception as e:
         return f"❌ ошибка: {str(e)}"
