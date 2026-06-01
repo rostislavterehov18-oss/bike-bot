@@ -5,17 +5,25 @@ import asyncio
 import json
 import os
 
+# =========================
+# CONFIG
+# =========================
+
 TOKEN = "8793663575:AAHVkKSgHhMwNXwi8ulOtu24mWio4XLimOE"
-CHAT_ID = None
+CHAT_ID = 5449343705  # твой Telegram ID
 
 seen_file = "seen_items.json"
 
-# -------------------------
-# LOAD SEEN FROM FILE (чтобы не повторял после перезапуска)
-# -------------------------
+# =========================
+# LOAD SEEN
+# =========================
+
 if os.path.exists(seen_file):
-    with open(seen_file, "r", encoding="utf-8") as f:
-        seen = set(json.load(f))
+    try:
+        with open(seen_file, "r", encoding="utf-8") as f:
+            seen = set(json.load(f))
+    except:
+        seen = set()
 else:
     seen = set()
 
@@ -25,23 +33,22 @@ def save_seen():
         json.dump(list(seen), f)
 
 
-# -------------------------
-# START
-# -------------------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global CHAT_ID
-    CHAT_ID = update.effective_chat.id
+# =========================
+# /start
+# =========================
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🚲 Бот активирован!\n\nИщу велосипеды 0–200 CHF каждые 15 минут.\nСтарые объявления игнорируются."
+        "🚲 Бот работает!\n\n"
+        "Ищу велосипеды 0–200 CHF каждые 15 минут."
     )
 
 
-# -------------------------
+# =========================
 # TUTTI SEARCH
-# -------------------------
-def search_tutti():
+# =========================
 
+def search_tutti():
     url = "https://www.tutti.ch/api/v10/search"
 
     params = {
@@ -62,11 +69,8 @@ def search_tutti():
         results = []
 
         for item in data.get("items", []):
-
             title = item.get("title", "no title")
-            url_item = item.get("url", "")
-
-            link = "https://www.tutti.ch" + url_item
+            link = "https://www.tutti.ch" + item.get("url", "")
 
             if link not in seen:
                 seen.add(link)
@@ -78,11 +82,11 @@ def search_tutti():
         return []
 
 
-# -------------------------
+# =========================
 # RICARDO SEARCH
-# -------------------------
-def search_ricardo():
+# =========================
 
+def search_ricardo():
     url = "https://www.ricardo.ch/api/search/v1/search"
 
     params = {
@@ -103,7 +107,6 @@ def search_ricardo():
         results = []
 
         for item in data.get("items", []):
-
             title = item.get("title", "no title")
             link = item.get("url", "")
 
@@ -120,34 +123,29 @@ def search_ricardo():
         return []
 
 
-# -------------------------
+# =========================
 # SEARCH ALL
-# -------------------------
-async def search_all():
+# =========================
 
+async def search_all():
     results = []
     results += search_tutti()
     results += search_ricardo()
 
-    # сохраняем seen после каждого цикла
     save_seen()
-
     return results
 
 
-# -------------------------
-# LOOP 15 MIN
-# -------------------------
+# =========================
+# LOOP
+# =========================
+
 async def loop(app: Application):
-
     while True:
-
-        if CHAT_ID:
-
+        try:
             items = await search_all()
 
             if items:
-
                 msg = "🚲 Новые велосипеды 0–200 CHF:\n\n"
 
                 for title, link in items:
@@ -155,27 +153,38 @@ async def loop(app: Application):
 
                 await app.bot.send_message(chat_id=CHAT_ID, text=msg)
 
+            print("Loop OK")
+
+        except Exception as e:
+            print("Loop error:", e)
+
         await asyncio.sleep(900)
 
 
-# -------------------------
-# STARTUP
-# -------------------------
+# =========================
+# START LOOP
+# =========================
+
 async def post_init(app: Application):
     asyncio.create_task(loop(app))
 
 
-# -------------------------
+# =========================
 # MAIN
-# -------------------------
+# =========================
+
 def main():
-    app = Application.builder().token(TOKEN).post_init(post_init).build()
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .post_init(post_init)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", start))
 
-    print("🚲 Бот запущен...")
+    print("🚲 Bot started")
 
-    # 🔥 защита от старых апдейтов
     app.run_polling(drop_pending_updates=True)
 
 
